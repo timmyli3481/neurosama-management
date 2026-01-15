@@ -19,6 +19,8 @@ export const createProject = mutation({
   args: {
     name: v.string(),
     description: v.optional(v.string()),
+    startDate: v.optional(v.number()),
+    endDate: v.optional(v.number()),
   },
   returns: v.id("projects"),
   handler: async (ctx, args) => {
@@ -38,6 +40,8 @@ export const createProject = mutation({
     const projectId = await ctx.db.insert("projects", {
       name: args.name,
       description: args.description,
+      startDate: args.startDate,
+      endDate: args.endDate,
       createdBy: currentUser._id,
       createdAt: now,
       updatedAt: now,
@@ -55,6 +59,8 @@ export const updateProject = mutation({
     projectId: v.id("projects"),
     name: v.optional(v.string()),
     description: v.optional(v.string()),
+    startDate: v.optional(v.number()),
+    endDate: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -77,7 +83,7 @@ export const updateProject = mutation({
       throw new Error("Project not found");
     }
 
-    const updates: { name?: string; description?: string; updatedAt: number } = {
+    const updates: { name?: string; description?: string; startDate?: number; endDate?: number; updatedAt: number } = {
       updatedAt: Date.now(),
     };
     if (args.name !== undefined) {
@@ -85,6 +91,12 @@ export const updateProject = mutation({
     }
     if (args.description !== undefined) {
       updates.description = args.description;
+    }
+    if (args.startDate !== undefined) {
+      updates.startDate = args.startDate;
+    }
+    if (args.endDate !== undefined) {
+      updates.endDate = args.endDate;
     }
 
     await ctx.db.patch(args.projectId, updates);
@@ -283,6 +295,8 @@ export const listProjects = query({
         _id: v.id("projects"),
         name: v.string(),
         description: v.optional(v.string()),
+        startDate: v.optional(v.number()),
+        endDate: v.optional(v.number()),
         createdAt: v.number(),
         updatedAt: v.number(),
         taskStats: v.object({
@@ -389,6 +403,8 @@ export const listProjects = query({
         _id: project._id,
         name: project.name,
         description: project.description,
+        startDate: project.startDate,
+        endDate: project.endDate,
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,
         taskStats,
@@ -416,6 +432,8 @@ export const getProject = query({
       _id: v.id("projects"),
       name: v.string(),
       description: v.optional(v.string()),
+      startDate: v.optional(v.number()),
+      endDate: v.optional(v.number()),
       createdBy: v.id("users"),
       createdAt: v.number(),
       updatedAt: v.number(),
@@ -539,6 +557,8 @@ export const getProject = query({
       _id: project._id,
       name: project.name,
       description: project.description,
+      startDate: project.startDate,
+      endDate: project.endDate,
       createdBy: project.createdBy,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,

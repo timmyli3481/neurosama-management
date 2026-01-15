@@ -16,6 +16,7 @@
     "@clerk/backend": "^2.29.2",
     "@clerk/clerk-react": "^5.56.0",
     "@clerk/nextjs": "^6.35.2",
+    "@radix-ui/react-avatar": "^1.1.11",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "convex": "^1.29.3",

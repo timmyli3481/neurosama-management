@@ -56,8 +56,12 @@ import {
   User,
   UserPlus,
   X,
+  List,
+  LayoutGrid,
+  Calendar,
 } from "lucide-react";
 import Link from "next/link";
+import { KanbanBoard } from "@/components/kanban/KanbanBoard";
 
 type TaskStatus = "backlog" | "todo" | "in_progress" | "review" | "done";
 
@@ -70,12 +74,20 @@ export default function ProjectDetailPage() {
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "all">("all");
+  const [viewMode, setViewMode] = useState<"list" | "kanban">("list");
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignType, setAssignType] = useState<"team" | "user">("user");
   const [selectedAssignee, setSelectedAssignee] = useState<string>("");
   const [taskAssignOpen, setTaskAssignOpen] = useState<Id<"tasks"> | null>(null);
   const [taskAssignType, setTaskAssignType] = useState<"team" | "user">("user");
   const [selectedTaskAssignee, setSelectedTaskAssignee] = useState<string>("");
+  const [editingTask, setEditingTask] = useState<{
+    _id: Id<"tasks">;
+    name: string;
+    description?: string;
+    status: TaskStatus;
+    dueDate?: number;
+  } | null>(null);
 
   const project = useQuery(api.projects.getProject, { projectId });
   const { results: tasks, status: tasksLoadStatus, loadMore } = usePaginatedQuery(
@@ -324,35 +336,69 @@ export default function ProjectDetailPage() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">Tasks</h2>
-          <Button onClick={() => setCreateTaskOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Task
-          </Button>
-        </div>
-
-        {/* Status Filter */}
-        <div className="flex gap-2 flex-wrap">
-          <Button
-            variant={statusFilter === "all" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setStatusFilter("all")}
-          >
-            All ({project.taskStats.total})
-          </Button>
-          {TASK_STATUSES.map((status) => (
-            <Button
-              key={status}
-              variant={statusFilter === status ? "default" : "outline"}
-              size="sm"
-              onClick={() => setStatusFilter(status)}
-            >
-              {getStatusLabel(status)} ({project.taskStats[status]})
+          <div className="flex items-center gap-2">
+            {/* View Mode Toggle */}
+            <div className="flex items-center border rounded-lg overflow-hidden">
+              <Button
+                variant={viewMode === "list" ? "default" : "ghost"}
+                size="sm"
+                className="rounded-none"
+                onClick={() => setViewMode("list")}
+              >
+                <List className="h-4 w-4" />
+              </Button>
+              <Button
+                variant={viewMode === "kanban" ? "default" : "ghost"}
+                size="sm"
+                className="rounded-none"
+                onClick={() => setViewMode("kanban")}
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </Button>
+            </div>
+            <Button onClick={() => setCreateTaskOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Task
             </Button>
-          ))}
+          </div>
         </div>
 
-        {/* Task List */}
-        {tasksLoadStatus === "LoadingFirstPage" ? (
+        {/* Kanban View */}
+        {viewMode === "kanban" ? (
+          tasksLoadStatus === "LoadingFirstPage" ? (
+            <div className="flex gap-4">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <Skeleton key={i} className="h-64 w-72 shrink-0" />
+              ))}
+            </div>
+          ) : (
+            <KanbanBoard tasks={tasks} canEdit={canEdit} />
+          )
+        ) : (
+          <>
+            {/* Status Filter */}
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                variant={statusFilter === "all" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setStatusFilter("all")}
+              >
+                All ({project.taskStats.total})
+              </Button>
+              {TASK_STATUSES.map((status) => (
+                <Button
+                  key={status}
+                  variant={statusFilter === status ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setStatusFilter(status)}
+                >
+                  {getStatusLabel(status)} ({project.taskStats[status]})
+                </Button>
+              ))}
+            </div>
+
+            {/* Task List */}
+            {tasksLoadStatus === "LoadingFirstPage" ? (
           <div className="space-y-2">
             {[1, 2, 3].map((i) => (
               <Skeleton key={i} className="h-20 w-full" />
@@ -389,6 +435,12 @@ export default function ProjectDetailPage() {
                         <p className="text-sm text-muted-foreground truncate mt-1">
                           {task.description}
                         </p>
+                      )}
+                      {task.dueDate && (
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                          <Calendar className="h-3 w-3" />
+                          Due: {new Date(task.dueDate).toLocaleDateString()}
+                        </div>
                       )}
                       <div className="flex gap-1 mt-2 flex-wrap items-center">
                         {task.assignees.map((a) => (
@@ -440,6 +492,20 @@ export default function ProjectDetailPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        {canEdit && (
+                          <DropdownMenuItem
+                            onClick={() => setEditingTask({
+                              _id: task._id,
+                              name: task.name,
+                              description: task.description,
+                              status: task.status,
+                              dueDate: task.dueDate,
+                            })}
+                          >
+                            <Pencil className="h-4 w-4 mr-2" />
+                            Edit Task
+                          </DropdownMenuItem>
+                        )}
                         {TASK_STATUSES.filter((s) => s !== task.status).map((status) => (
                           <DropdownMenuItem
                             key={status}
@@ -484,6 +550,8 @@ export default function ProjectDetailPage() {
             )}
           </>
         )}
+          </>
+        )}
       </div>
 
       {/* Dialogs */}
@@ -498,6 +566,16 @@ export default function ProjectDetailPage() {
         onOpenChange={setCreateTaskOpen}
         projectId={projectId}
       />
+
+      {/* Edit Task Dialog */}
+      {editingTask && (
+        <TaskForm
+          open={true}
+          onOpenChange={(open) => !open && setEditingTask(null)}
+          projectId={projectId}
+          task={editingTask}
+        />
+      )}
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>

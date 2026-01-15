@@ -30,6 +30,7 @@ export const createTask = mutation({
     name: v.string(),
     description: v.optional(v.string()),
     status: v.optional(taskStatusValidator),
+    dueDate: v.optional(v.number()),
   },
   returns: v.id("tasks"),
   handler: async (ctx, args) => {
@@ -59,6 +60,7 @@ export const createTask = mutation({
       name: args.name,
       description: args.description,
       status: args.status ?? "backlog",
+      dueDate: args.dueDate,
       createdBy: currentUser._id,
       createdAt: now,
       updatedAt: now,
@@ -77,6 +79,7 @@ export const updateTask = mutation({
     name: v.optional(v.string()),
     description: v.optional(v.string()),
     status: v.optional(taskStatusValidator),
+    dueDate: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -97,7 +100,7 @@ export const updateTask = mutation({
 
     // Members can only update status
     if (permission === "member") {
-      if (args.name !== undefined || args.description !== undefined) {
+      if (args.name !== undefined || args.description !== undefined || args.dueDate !== undefined) {
         throw new Error("Members can only update task status");
       }
     }
@@ -106,6 +109,7 @@ export const updateTask = mutation({
       name?: string;
       description?: string;
       status?: TaskStatus;
+      dueDate?: number;
       updatedAt: number;
     } = {
       updatedAt: Date.now(),
@@ -119,6 +123,9 @@ export const updateTask = mutation({
     }
     if (args.status !== undefined) {
       updates.status = args.status;
+    }
+    if (args.dueDate !== undefined) {
+      updates.dueDate = args.dueDate;
     }
 
     await ctx.db.patch(args.taskId, updates);
@@ -335,6 +342,7 @@ export const getTasksByProject = query({
         name: v.string(),
         description: v.optional(v.string()),
         status: taskStatusValidator,
+        dueDate: v.optional(v.number()),
         createdBy: v.id("users"),
         createdAt: v.number(),
         updatedAt: v.number(),
@@ -444,6 +452,7 @@ export const getTasksByProject = query({
         name: task.name,
         description: task.description,
         status: task.status,
+        dueDate: task.dueDate,
         createdBy: task.createdBy,
         createdAt: task.createdAt,
         updatedAt: task.updatedAt,
@@ -478,6 +487,7 @@ export const listMyTasks = query({
         name: v.string(),
         description: v.optional(v.string()),
         status: taskStatusValidator,
+        dueDate: v.optional(v.number()),
         createdAt: v.number(),
         updatedAt: v.number(),
       })
@@ -527,6 +537,7 @@ export const listMyTasks = query({
         name: task.name,
         description: task.description,
         status: task.status,
+        dueDate: task.dueDate,
         createdAt: task.createdAt,
         updatedAt: task.updatedAt,
       });
@@ -555,6 +566,7 @@ export const getTask = query({
       name: v.string(),
       description: v.optional(v.string()),
       status: taskStatusValidator,
+      dueDate: v.optional(v.number()),
       createdBy: v.id("users"),
       createdAt: v.number(),
       updatedAt: v.number(),
@@ -652,6 +664,7 @@ export const getTask = query({
       name: task.name,
       description: task.description,
       status: task.status,
+      dueDate: task.dueDate,
       createdBy: task.createdBy,
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
