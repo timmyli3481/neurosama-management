@@ -37,10 +37,9 @@ import {
   Cpu,
   CircleDot,
   Wrench,
-  CheckCircle2,
   AlertTriangle,
-  Pencil,
 } from "lucide-react";
+import Link from "next/link";
 
 const subsystemTypes = [
   { value: "drivetrain", label: "Drivetrain", icon: Cog },
@@ -83,59 +82,61 @@ function SubsystemCard({ subsystem }: {
   const Icon = typeInfo?.icon || Wrench;
 
   return (
-    <Card className="hover:border-primary/50 transition-colors">
-      <CardHeader className="pb-2">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10">
-              <Icon className="h-5 w-5 text-primary" />
+    <Link href={`/robot/${subsystem._id}`}>
+      <Card className="hover:border-primary/50 transition-colors cursor-pointer h-full">
+        <CardHeader className="pb-2">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-primary/10">
+                <Icon className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <CardTitle className="text-lg">{subsystem.name}</CardTitle>
+                <p className="text-xs text-muted-foreground capitalize">
+                  {typeInfo?.label || subsystem.type}
+                </p>
+              </div>
             </div>
-            <div>
-              <CardTitle className="text-lg">{subsystem.name}</CardTitle>
-              <p className="text-xs text-muted-foreground capitalize">
-                {typeInfo?.label || subsystem.type}
-              </p>
-            </div>
+            <Badge
+              variant="outline"
+              className={`${statusInfo?.color} bg-opacity-20 border-0`}
+            >
+              <div className={`w-2 h-2 rounded-full ${statusInfo?.color} mr-1.5`} />
+              {statusInfo?.label}
+            </Badge>
           </div>
-          <Badge
-            variant="outline"
-            className={`${statusInfo?.color} bg-opacity-20 border-0`}
-          >
-            <div className={`w-2 h-2 rounded-full ${statusInfo?.color} mr-1.5`} />
-            {statusInfo?.label}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {subsystem.description && (
-          <p className="text-sm text-muted-foreground line-clamp-2">
-            {subsystem.description}
-          </p>
-        )}
-        
-        <div className="space-y-1">
-          <div className="flex items-center justify-between text-sm">
-            <span>Progress</span>
-            <span className="font-medium">{subsystem.progress}%</span>
-          </div>
-          <Progress value={subsystem.progress} className="h-2" />
-        </div>
-        
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <div className="flex items-center gap-4">
-            {subsystem.currentVersion && (
-              <span className="font-mono text-xs bg-accent px-2 py-0.5 rounded">
-                {subsystem.currentVersion}
-              </span>
-            )}
-            <span>{subsystem.taskCount} tasks</span>
-          </div>
-          {subsystem.leadName && (
-            <span className="text-xs">Lead: {subsystem.leadName}</span>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {subsystem.description && (
+            <p className="text-sm text-muted-foreground line-clamp-2">
+              {subsystem.description}
+            </p>
           )}
-        </div>
-      </CardContent>
-    </Card>
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-sm">
+              <span>Progress</span>
+              <span className="font-medium">{subsystem.progress}%</span>
+            </div>
+            <Progress value={subsystem.progress} className="h-2" />
+          </div>
+
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <div className="flex items-center gap-4">
+              {subsystem.currentVersion && (
+                <span className="font-mono text-xs bg-accent px-2 py-0.5 rounded">
+                  {subsystem.currentVersion}
+                </span>
+              )}
+              <span>{subsystem.taskCount} tasks</span>
+            </div>
+            {subsystem.leadName && (
+              <span className="text-xs">Lead: {subsystem.leadName}</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
   );
 }
 

@@ -32,6 +32,7 @@ import {
   Wrench,
   Gamepad2,
 } from "lucide-react";
+import Link from "next/link";
 
 function TeamCard({ team }: {
   team: {
@@ -79,7 +80,7 @@ function TopTeamCard({ team, rank }: {
   rank: number;
 }) {
   return (
-    <div className="flex items-center gap-4 p-3 rounded-lg bg-accent/50">
+    <Link href={`/scouting/${team._id}`} className="flex items-center gap-4 p-3 rounded-lg bg-accent/50 hover:bg-accent transition-colors">
       <div className="text-2xl font-bold text-muted-foreground w-8">
         {rank}
       </div>
@@ -100,7 +101,7 @@ function TopTeamCard({ team, rank }: {
         <Star className="h-4 w-4 text-primary fill-primary" />
         <span className="font-bold">{team.avgRating}</span>
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -297,15 +298,9 @@ export default function ScoutingPage() {
             <>
               <div className="grid gap-4 sm:grid-cols-2">
                 {results.map((team) => (
-                  <div
-                    key={team._id}
-                    onClick={() => {
-                      setSelectedTeamId(team._id as Id<"scoutedTeams">);
-                      setScoutOpen(true);
-                    }}
-                  >
+                  <Link key={team._id} href={`/scouting/${team._id}`}>
                     <TeamCard team={team} />
-                  </div>
+                  </Link>
                 ))}
               </div>
 

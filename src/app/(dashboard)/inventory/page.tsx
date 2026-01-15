@@ -45,9 +45,9 @@ import {
   Printer,
   Wind,
   CircleDot,
-  MoreVertical,
   ExternalLink,
 } from "lucide-react";
+import Link from "next/link";
 
 const partCategories = [
   { value: "motors", label: "Motors", icon: Cog },
@@ -285,14 +285,14 @@ export default function InventoryPage() {
                   const CatIcon = catInfo?.icon || Package;
                   
                   return (
-                    <TableRow key={part._id}>
+                    <TableRow key={part._id} className="cursor-pointer hover:bg-muted/50">
                       <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
+                        <Link href={`/inventory/${part._id}`} className="flex items-center gap-2 hover:text-primary">
                           {isLowStock && (
                             <AlertTriangle className="h-4 w-4 text-yellow-500" />
                           )}
                           {part.name}
-                        </div>
+                        </Link>
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="capitalize">

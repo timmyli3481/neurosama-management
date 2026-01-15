@@ -16,6 +16,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { DatePicker } from "@/components/ui/date-picker";
+import { useTimezone } from "@/context/TimezoneContext";
 
 type ProjectFormProps = {
   open: boolean;
@@ -29,16 +31,16 @@ type ProjectFormProps = {
   };
 };
 
-function formatDateForInput(timestamp?: number): string {
-  if (!timestamp) return "";
-  return new Date(timestamp).toISOString().split("T")[0];
-}
-
 export function ProjectForm({ open, onOpenChange, project }: ProjectFormProps) {
+  const { dateToUtcTimestamp, utcTimestampToDate } = useTimezone();
   const [name, setName] = useState(project?.name ?? "");
   const [description, setDescription] = useState(project?.description ?? "");
-  const [startDate, setStartDate] = useState(formatDateForInput(project?.startDate));
-  const [endDate, setEndDate] = useState(formatDateForInput(project?.endDate));
+  const [startDate, setStartDate] = useState<Date | undefined>(
+    project?.startDate ? utcTimestampToDate(project.startDate) : undefined
+  );
+  const [endDate, setEndDate] = useState<Date | undefined>(
+    project?.endDate ? utcTimestampToDate(project.endDate) : undefined
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const createProject = useMutation(api.projects.createProject);
@@ -51,10 +53,10 @@ export function ProjectForm({ open, onOpenChange, project }: ProjectFormProps) {
     if (open) {
       setName(project?.name ?? "");
       setDescription(project?.description ?? "");
-      setStartDate(formatDateForInput(project?.startDate));
-      setEndDate(formatDateForInput(project?.endDate));
+      setStartDate(project?.startDate ? utcTimestampToDate(project.startDate) : undefined);
+      setEndDate(project?.endDate ? utcTimestampToDate(project.endDate) : undefined);
     }
-  }, [open, project]);
+  }, [open, project, utcTimestampToDate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,8 +64,8 @@ export function ProjectForm({ open, onOpenChange, project }: ProjectFormProps) {
 
     setIsSubmitting(true);
     try {
-      const startTimestamp = startDate ? new Date(startDate).getTime() : undefined;
-      const endTimestamp = endDate ? new Date(endDate).getTime() : undefined;
+      const startTimestamp = startDate ? dateToUtcTimestamp(startDate) : undefined;
+      const endTimestamp = endDate ? dateToUtcTimestamp(endDate) : undefined;
 
       if (isEditing) {
         await updateProject({
@@ -84,8 +86,8 @@ export function ProjectForm({ open, onOpenChange, project }: ProjectFormProps) {
       onOpenChange(false);
       setName("");
       setDescription("");
-      setStartDate("");
-      setEndDate("");
+      setStartDate(undefined);
+      setEndDate(undefined);
     } catch (error) {
       console.error("Failed to save project:", error);
     } finally {
@@ -131,22 +133,19 @@ export function ProjectForm({ open, onOpenChange, project }: ProjectFormProps) {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="startDate">Start Date</Label>
-                  <Input
-                    id="startDate"
-                    type="date"
+                  <Label>Start Date</Label>
+                  <DatePicker
                     value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
+                    onChange={setStartDate}
+                    placeholder="Select start date"
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="endDate">End Date</Label>
-                  <Input
-                    id="endDate"
-                    type="date"
+                  <Label>End Date</Label>
+                  <DatePicker
                     value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    min={startDate || undefined}
+                    onChange={setEndDate}
+                    placeholder="Select end date"
                   />
                 </div>
               </div>

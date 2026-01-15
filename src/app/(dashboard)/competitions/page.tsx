@@ -34,6 +34,10 @@ import {
   ArrowRight,
 } from "lucide-react";
 import Link from "next/link";
+import { DatePicker } from "@/components/ui/date-picker";
+import { FormattedDate } from "@/components/ui/timezone-date-input";
+import { useTimezone } from "@/context/TimezoneContext";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const competitionTypes = [
   { value: "scrimmage", label: "Scrimmage" },
@@ -92,17 +96,9 @@ function CompetitionCard({ competition }: { competition: {
           
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Calendar className="h-4 w-4" />
-            {new Date(competition.startDate).toLocaleDateString("en-US", {
-              weekday: "short",
-              month: "short",
-              day: "numeric",
-            })}
+            <FormattedDate timestamp={competition.startDate} format="weekday" />
             {competition.startDate !== competition.endDate && (
-              <> - {new Date(competition.endDate).toLocaleDateString("en-US", {
-                weekday: "short",
-                month: "short",
-                day: "numeric",
-              })}</>
+              <> - <FormattedDate timestamp={competition.endDate} format="weekday" /></>
             )}
           </div>
           
@@ -122,16 +118,17 @@ function CompetitionCard({ competition }: { competition: {
 }
 
 export default function CompetitionsPage() {
+  const { dateToUtcTimestamp } = useTimezone();
   const [showUpcoming, setShowUpcoming] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
+  const [startDate, setStartDate] = useState<Date | undefined>(undefined);
+  const [endDate, setEndDate] = useState<Date | undefined>(undefined);
+  const [registrationDeadline, setRegistrationDeadline] = useState<Date | undefined>(undefined);
   const [formData, setFormData] = useState({
     name: "",
     type: "qualifier" as const,
     location: "",
     address: "",
-    startDate: "",
-    endDate: "",
-    registrationDeadline: "",
     registrationStatus: "not_started" as const,
     notes: "",
   });
@@ -145,20 +142,16 @@ export default function CompetitionsPage() {
   const createCompetition = useMutation(api.competitions.createCompetition);
 
   const handleCreate = async () => {
-    if (!formData.name || !formData.location || !formData.startDate) return;
+    if (!formData.name || !formData.location || !startDate) return;
 
     await createCompetition({
       name: formData.name,
       type: formData.type,
       location: formData.location,
       address: formData.address || undefined,
-      startDate: new Date(formData.startDate).getTime(),
-      endDate: formData.endDate
-        ? new Date(formData.endDate).getTime()
-        : new Date(formData.startDate).getTime(),
-      registrationDeadline: formData.registrationDeadline
-        ? new Date(formData.registrationDeadline).getTime()
-        : undefined,
+      startDate: dateToUtcTimestamp(startDate),
+      endDate: endDate ? dateToUtcTimestamp(endDate) : dateToUtcTimestamp(startDate),
+      registrationDeadline: registrationDeadline ? dateToUtcTimestamp(registrationDeadline) : undefined,
       registrationStatus: formData.registrationStatus,
       notes: formData.notes || undefined,
     });
@@ -168,12 +161,12 @@ export default function CompetitionsPage() {
       type: "qualifier",
       location: "",
       address: "",
-      startDate: "",
-      endDate: "",
-      registrationDeadline: "",
       registrationStatus: "not_started",
       notes: "",
     });
+    setStartDate(undefined);
+    setEndDate(undefined);
+    setRegistrationDeadline(undefined);
     setCreateOpen(false);
   };
 
@@ -264,131 +257,131 @@ export default function CompetitionsPage() {
 
       {/* Create Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Add Competition</DialogTitle>
             <DialogDescription>
               Add a new competition or event to your season calendar.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Competition Name *</Label>
-              <Input
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="e.g., Regional Qualifier #1"
-              />
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
+          <ScrollArea className="flex-1 max-h-[60vh]">
+            <div className="space-y-4 py-4 pr-4">
               <div className="space-y-2">
-                <Label>Type</Label>
-                <Select
-                  value={formData.type}
-                  onValueChange={(v) => setFormData({ ...formData, type: v as typeof formData.type })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {competitionTypes.map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        {type.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Competition Name *</Label>
+                <Input
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="e.g., Regional Qualifier #1"
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Type</Label>
+                  <Select
+                    value={formData.type}
+                    onValueChange={(v) => setFormData({ ...formData, type: v as typeof formData.type })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {competitionTypes.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {type.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label>Registration Status</Label>
+                  <Select
+                    value={formData.registrationStatus}
+                    onValueChange={(v) =>
+                      setFormData({ ...formData, registrationStatus: v as typeof formData.registrationStatus })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {registrationStatuses.map((status) => (
+                        <SelectItem key={status.value} value={status.value}>
+                          {status.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               
               <div className="space-y-2">
-                <Label>Registration Status</Label>
-                <Select
-                  value={formData.registrationStatus}
-                  onValueChange={(v) =>
-                    setFormData({ ...formData, registrationStatus: v as typeof formData.registrationStatus })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {registrationStatuses.map((status) => (
-                      <SelectItem key={status.value} value={status.value}>
-                        {status.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Location *</Label>
-              <Input
-                value={formData.location}
-                onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                placeholder="e.g., Lincoln High School"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Address</Label>
-              <Input
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                placeholder="Full address"
-              />
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Start Date *</Label>
+                <Label>Location *</Label>
                 <Input
-                  type="date"
-                  value={formData.startDate}
-                  onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+                  value={formData.location}
+                  onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                  placeholder="e.g., Lincoln High School"
                 />
               </div>
               
               <div className="space-y-2">
-                <Label>End Date</Label>
+                <Label>Address</Label>
                 <Input
-                  type="date"
-                  value={formData.endDate}
-                  onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  placeholder="Full address"
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Start Date *</Label>
+                  <DatePicker
+                    value={startDate}
+                    onChange={setStartDate}
+                    placeholder="Select start date"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label>End Date</Label>
+                  <DatePicker
+                    value={endDate}
+                    onChange={setEndDate}
+                    placeholder="Select end date"
+                  />
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Registration Deadline</Label>
+                <DatePicker
+                  value={registrationDeadline}
+                  onChange={setRegistrationDeadline}
+                  placeholder="Select deadline"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Notes</Label>
+                <Textarea
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  placeholder="Any additional notes..."
+                  rows={3}
                 />
               </div>
             </div>
-            
-            <div className="space-y-2">
-              <Label>Registration Deadline</Label>
-              <Input
-                type="date"
-                value={formData.registrationDeadline}
-                onChange={(e) =>
-                  setFormData({ ...formData, registrationDeadline: e.target.value })
-                }
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Notes</Label>
-              <Textarea
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                placeholder="Any additional notes..."
-                rows={3}
-              />
-            </div>
-          </div>
+          </ScrollArea>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>
               Cancel
             </Button>
             <Button
               onClick={handleCreate}
-              disabled={!formData.name || !formData.location || !formData.startDate}
+              disabled={!formData.name || !formData.location || !startDate}
             >
               Add Competition
             </Button>

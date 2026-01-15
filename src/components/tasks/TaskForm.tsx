@@ -24,6 +24,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TASK_STATUSES, getStatusLabel } from "./TaskStatusBadge";
+import { DatePicker } from "@/components/ui/date-picker";
+import { useTimezone } from "@/context/TimezoneContext";
 
 type TaskStatus = "backlog" | "todo" | "in_progress" | "review" | "done";
 
@@ -40,16 +42,14 @@ type TaskFormProps = {
   };
 };
 
-function formatDateForInput(timestamp?: number): string {
-  if (!timestamp) return "";
-  return new Date(timestamp).toISOString().split("T")[0];
-}
-
 export function TaskForm({ open, onOpenChange, projectId, task }: TaskFormProps) {
+  const { dateToUtcTimestamp, utcTimestampToDate } = useTimezone();
   const [name, setName] = useState(task?.name ?? "");
   const [description, setDescription] = useState(task?.description ?? "");
   const [status, setStatus] = useState<TaskStatus>(task?.status ?? "backlog");
-  const [dueDate, setDueDate] = useState(formatDateForInput(task?.dueDate));
+  const [dueDate, setDueDate] = useState<Date | undefined>(
+    task?.dueDate ? utcTimestampToDate(task.dueDate) : undefined
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const createTask = useMutation(api.tasks.createTask);
@@ -63,9 +63,9 @@ export function TaskForm({ open, onOpenChange, projectId, task }: TaskFormProps)
       setName(task?.name ?? "");
       setDescription(task?.description ?? "");
       setStatus(task?.status ?? "backlog");
-      setDueDate(formatDateForInput(task?.dueDate));
+      setDueDate(task?.dueDate ? utcTimestampToDate(task.dueDate) : undefined);
     }
-  }, [open, task]);
+  }, [open, task, utcTimestampToDate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,7 +73,7 @@ export function TaskForm({ open, onOpenChange, projectId, task }: TaskFormProps)
 
     setIsSubmitting(true);
     try {
-      const dueDateTimestamp = dueDate ? new Date(dueDate).getTime() : undefined;
+      const dueDateTimestamp = dueDate ? dateToUtcTimestamp(dueDate) : undefined;
 
       if (isEditing) {
         await updateTask({
@@ -96,7 +96,7 @@ export function TaskForm({ open, onOpenChange, projectId, task }: TaskFormProps)
       setName("");
       setDescription("");
       setStatus("backlog");
-      setDueDate("");
+      setDueDate(undefined);
     } catch (error) {
       console.error("Failed to save task:", error);
     } finally {
@@ -155,12 +155,11 @@ export function TaskForm({ open, onOpenChange, projectId, task }: TaskFormProps)
                   </Select>
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="dueDate">Due Date</Label>
-                  <Input
-                    id="dueDate"
-                    type="date"
+                  <Label>Due Date</Label>
+                  <DatePicker
                     value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
+                    onChange={setDueDate}
+                    placeholder="Select due date"
                   />
                 </div>
               </div>

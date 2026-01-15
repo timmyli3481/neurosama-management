@@ -39,6 +39,10 @@ import {
   TestTube,
 } from "lucide-react";
 import Link from "next/link";
+import { DatePicker } from "@/components/ui/date-picker";
+import { FormattedDate } from "@/components/ui/timezone-date-input";
+import { useTimezone } from "@/context/TimezoneContext";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const categories = [
   { value: "design", label: "Design", icon: Palette, color: "bg-purple-500" },
@@ -81,10 +85,7 @@ function EntryCard({ entry }: {
               {categoryInfo?.label}
             </Badge>
             <span className="text-xs text-muted-foreground">
-              {new Date(entry.entryDate).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-              })}
+              <FormattedDate timestamp={entry.entryDate} format="date" />
             </span>
           </div>
           <CardTitle className="text-lg mt-2">{entry.title}</CardTitle>
@@ -116,13 +117,14 @@ function EntryCard({ entry }: {
 }
 
 export default function NotebookPage() {
+  const { dateToUtcTimestamp } = useTimezone();
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>(undefined);
   const [createOpen, setCreateOpen] = useState(false);
+  const [entryDate, setEntryDate] = useState<Date | undefined>(new Date());
   const [formData, setFormData] = useState({
     title: "",
     content: "",
     category: "build" as const,
-    entryDate: new Date().toISOString().split("T")[0],
     tags: "",
   });
 
@@ -136,13 +138,13 @@ export default function NotebookPage() {
   const createEntry = useMutation(api.notebook.createEntry);
 
   const handleCreate = async () => {
-    if (!formData.title || !formData.content) return;
+    if (!formData.title || !formData.content || !entryDate) return;
 
     await createEntry({
       title: formData.title,
       content: formData.content,
       category: formData.category,
-      entryDate: new Date(formData.entryDate).getTime(),
+      entryDate: dateToUtcTimestamp(entryDate),
       contributors: [],
       tags: formData.tags ? formData.tags.split(",").map((t) => t.trim()) : undefined,
     });
@@ -151,9 +153,9 @@ export default function NotebookPage() {
       title: "",
       content: "",
       category: "build",
-      entryDate: new Date().toISOString().split("T")[0],
       tags: "",
     });
+    setEntryDate(new Date());
     setCreateOpen(false);
   };
 
@@ -290,15 +292,15 @@ export default function NotebookPage() {
               Document your team&apos;s progress, designs, and learnings.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex-1 overflow-y-auto pr-2">
-            <div className="space-y-4 py-4">
+          <ScrollArea className="flex-1 max-h-[60vh]">
+            <div className="space-y-4 py-4 pr-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Entry Date</Label>
-                  <Input
-                    type="date"
-                    value={formData.entryDate}
-                    onChange={(e) => setFormData({ ...formData, entryDate: e.target.value })}
+                  <DatePicker
+                    value={entryDate}
+                    onChange={setEntryDate}
+                    placeholder="Select date"
                   />
                 </div>
                 
@@ -357,7 +359,7 @@ export default function NotebookPage() {
                 />
               </div>
             </div>
-          </div>
+          </ScrollArea>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>
               Cancel

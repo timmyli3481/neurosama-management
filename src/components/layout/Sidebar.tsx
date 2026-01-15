@@ -19,13 +19,28 @@ import {
   CalendarDays,
   Wrench,
   GanttChart,
+  Globe,
 } from "lucide-react";
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { useAuthContext } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useState } from "react";
 import { Separator } from "@/components/ui/separator";
+import { useTimezone, COMMON_TIMEZONES } from "@/context/TimezoneContext";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type NavItem = {
   href: string;
@@ -223,8 +238,83 @@ function RobotLogo({ className }: { className?: string }) {
   );
 }
 
+function TimezoneSelector() {
+  const { timezone, timezoneMode, setTimezone, setTimezoneMode, getTimezoneOffset } = useTimezone();
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-xs text-muted-foreground hover:text-foreground">
+          <Globe className="h-3.5 w-3.5" />
+          <span className="truncate">
+            {timezoneMode === "utc" ? "UTC" : timezone.split("/").pop()?.replace("_", " ")}
+          </span>
+          <span className="text-[10px] opacity-70">
+            ({timezoneMode === "utc" ? "+00:00" : getTimezoneOffset()})
+          </span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-3" align="start">
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <p className="text-xs font-semibold">Timezone Mode</p>
+            <div className="flex gap-1">
+              <Button
+                variant={timezoneMode === "local" ? "default" : "outline"}
+                size="sm"
+                className="flex-1 text-xs h-7"
+                onClick={() => setTimezoneMode("local")}
+              >
+                Local
+              </Button>
+              <Button
+                variant={timezoneMode === "utc" ? "default" : "outline"}
+                size="sm"
+                className="flex-1 text-xs h-7"
+                onClick={() => setTimezoneMode("utc")}
+              >
+                UTC
+              </Button>
+              <Button
+                variant={timezoneMode === "custom" ? "default" : "outline"}
+                size="sm"
+                className="flex-1 text-xs h-7"
+                onClick={() => setTimezoneMode("custom")}
+              >
+                Custom
+              </Button>
+            </div>
+          </div>
+
+          {timezoneMode === "custom" && (
+            <div className="space-y-1">
+              <p className="text-xs font-semibold">Select Timezone</p>
+              <Select value={timezone} onValueChange={setTimezone}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Select timezone" />
+                </SelectTrigger>
+                <SelectContent>
+                  {COMMON_TIMEZONES.map((tz) => (
+                    <SelectItem key={tz.value} value={tz.value} className="text-xs">
+                      {tz.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          <p className="text-[10px] text-muted-foreground">
+            All dates/times will be displayed in this timezone.
+          </p>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function DesktopSidebar() {
-  const { user } = useAuthContext();
+  const { user,clerkInfo } = useAuthContext();
 
   if (!user) {
     return null;
@@ -236,11 +326,8 @@ export function DesktopSidebar() {
         <Link href="/" className="flex items-center gap-3 font-semibold group">
           <RobotLogo />
           <div className="flex flex-col">
-            <span className="text-sm font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-              FTC Manager
-            </span>
-            <span className="text-[10px] text-muted-foreground font-medium tracking-wide">
-              ROBOTICS TEAM
+            <span className="text-sm font-bold text-primary">
+              Neurosama Managment
             </span>
           </div>
         </Link>
@@ -248,18 +335,25 @@ export function DesktopSidebar() {
       <div className="flex-1 overflow-y-auto p-3">
         <NavLinks userRole={user.role} />
       </div>
-      <div className="border-t border-border/50 p-4">
+      <div className="border-t border-border/50 p-4 space-y-3">
+        <TimezoneSelector />
         <div className="flex items-center gap-3 rounded-lg bg-accent/50 px-3 py-2">
           <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center">
             <span className="text-xs font-bold text-primary">
-              {user.firstName?.[0] || user.email?.[0] || "?"}
+              <Image
+                src={clerkInfo?.imageUrl || ""}
+                alt={clerkInfo?.firstName || clerkInfo?.emailAddresses?.[0]?.emailAddress || "?"}
+                width={32}
+                height={32}
+                className="rounded-full"
+              />
             </span>
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium truncate">
-              {user.firstName
-                ? `${user.firstName} ${user.lastName || ""}`
-                : user.email}
+              {clerkInfo?.firstName
+                ? `${clerkInfo?.firstName} ${clerkInfo?.lastName || ""}`
+                : clerkInfo?.emailAddresses?.[0]?.emailAddress}
             </p>
             <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
               {user.role}
@@ -272,7 +366,7 @@ export function DesktopSidebar() {
 }
 
 export function MobileSidebar() {
-  const { user } = useAuthContext();
+  const { user,clerkInfo } = useAuthContext();
   const [open, setOpen] = useState(false);
 
   if (!user) {
@@ -296,11 +390,8 @@ export function MobileSidebar() {
           >
             <RobotLogo />
             <div className="flex flex-col">
-              <span className="text-sm font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-                FTC Manager
-              </span>
-              <span className="text-[10px] text-muted-foreground font-medium tracking-wide">
-                ROBOTICS TEAM
+              <span className="text-sm font-bold bg-clip-text text-primary">
+                Neurosama Managment
               </span>
             </div>
           </Link>
@@ -308,18 +399,23 @@ export function MobileSidebar() {
         <div className="flex-1 overflow-y-auto p-3">
           <NavLinks userRole={user.role} onNavigate={() => setOpen(false)} />
         </div>
-        <div className="border-t border-border/50 p-4">
+        <div className="border-t border-border/50 p-4 space-y-3">
+          <TimezoneSelector />
           <div className="flex items-center gap-3 rounded-lg bg-accent/50 px-3 py-2">
             <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center">
-              <span className="text-xs font-bold text-primary">
-                {user.firstName?.[0] || user.email?.[0] || "?"}
-              </span>
+              <Image
+                src={clerkInfo?.imageUrl || ""}
+                alt={clerkInfo?.firstName || clerkInfo?.emailAddresses?.[0]?.emailAddress || "?"}
+                width={32}
+                height={32}
+                className="rounded-full"
+              />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">
-                {user.firstName
-                  ? `${user.firstName} ${user.lastName || ""}`
-                  : user.email}
+                {clerkInfo?.firstName
+                  ? `${clerkInfo?.firstName} ${clerkInfo?.lastName || ""}`
+                  : clerkInfo?.emailAddresses?.[0]?.emailAddress}
               </p>
               <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
                 {user.role}

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { usePaginatedQuery, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -39,6 +39,10 @@ import {
   Calendar,
 } from "lucide-react";
 import Link from "next/link";
+import { DateTimePicker } from "@/components/ui/date-picker";
+import { FormattedDate } from "@/components/ui/timezone-date-input";
+import { useTimezone } from "@/context/TimezoneContext";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const meetingTypes = [
   { value: "build_day", label: "Build Day", icon: Wrench, color: "bg-orange-500" },
@@ -90,11 +94,7 @@ function MeetingCard({ meeting }: {
           <div className="mt-4 space-y-2 text-sm text-muted-foreground">
             <div className="flex items-center gap-2">
               <CalendarDays className="h-4 w-4" />
-              {new Date(meeting.date).toLocaleDateString("en-US", {
-                weekday: "short",
-                month: "short",
-                day: "numeric",
-              })}
+              <FormattedDate timestamp={meeting.date} format="weekday" />
             </div>
             
             {meeting.startTime && (
@@ -128,12 +128,13 @@ function MeetingCard({ meeting }: {
 }
 
 export default function MeetingsPage() {
+  const { dateToUtcTimestamp } = useTimezone();
   const [showUpcoming, setShowUpcoming] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
+  const [date, setDate] = useState<Date | undefined>(undefined);
   const [formData, setFormData] = useState({
     title: "",
     type: "build_day" as const,
-    date: "",
     startTime: "",
     endTime: "",
     location: "",
@@ -151,12 +152,12 @@ export default function MeetingsPage() {
   const createMeeting = useMutation(api.meetings.createMeeting);
 
   const handleCreate = async () => {
-    if (!formData.title || !formData.date) return;
+    if (!formData.title || !date) return;
 
     await createMeeting({
       title: formData.title,
       type: formData.type,
-      date: new Date(formData.date).getTime(),
+      date: dateToUtcTimestamp(date, formData.startTime || undefined),
       startTime: formData.startTime || undefined,
       endTime: formData.endTime || undefined,
       location: formData.location || undefined,
@@ -166,12 +167,12 @@ export default function MeetingsPage() {
     setFormData({
       title: "",
       type: "build_day",
-      date: "",
       startTime: "",
       endTime: "",
       location: "",
       agenda: "",
     });
+    setDate(undefined);
     setCreateOpen(false);
   };
 
@@ -296,24 +297,24 @@ export default function MeetingsPage() {
 
       {/* Create Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Schedule Meeting</DialogTitle>
             <DialogDescription>
               Create a new team meeting.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Meeting Title *</Label>
-              <Input
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                placeholder="e.g., Weekly Build Day"
-              />
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
+          <ScrollArea className="flex-1 max-h-[60vh]">
+            <div className="space-y-4 py-4 pr-4">
+              <div className="space-y-2">
+                <Label>Meeting Title *</Label>
+                <Input
+                  value={formData.title}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  placeholder="e.g., Weekly Build Day"
+                />
+              </div>
+              
               <div className="space-y-2">
                 <Label>Type</Label>
                 <Select
@@ -340,22 +341,13 @@ export default function MeetingsPage() {
               </div>
               
               <div className="space-y-2">
-                <Label>Date *</Label>
-                <Input
-                  type="date"
-                  value={formData.date}
-                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                />
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Start Time</Label>
-                <Input
-                  type="time"
-                  value={formData.startTime}
-                  onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
+                <Label>Date & Start Time *</Label>
+                <DateTimePicker
+                  value={date}
+                  onChange={setDate}
+                  time={formData.startTime}
+                  onTimeChange={(t) => setFormData({ ...formData, startTime: t })}
+                  placeholder="Select date & time"
                 />
               </div>
               
@@ -367,34 +359,34 @@ export default function MeetingsPage() {
                   onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
                 />
               </div>
+              
+              <div className="space-y-2">
+                <Label>Location</Label>
+                <Input
+                  value={formData.location}
+                  onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                  placeholder="e.g., School Robotics Lab"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Agenda</Label>
+                <Textarea
+                  value={formData.agenda}
+                  onChange={(e) => setFormData({ ...formData, agenda: e.target.value })}
+                  placeholder="Meeting agenda..."
+                  rows={3}
+                />
+              </div>
             </div>
-            
-            <div className="space-y-2">
-              <Label>Location</Label>
-              <Input
-                value={formData.location}
-                onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                placeholder="e.g., School Robotics Lab"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Agenda</Label>
-              <Textarea
-                value={formData.agenda}
-                onChange={(e) => setFormData({ ...formData, agenda: e.target.value })}
-                placeholder="Meeting agenda..."
-                rows={3}
-              />
-            </div>
-          </div>
+          </ScrollArea>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>
               Cancel
             </Button>
             <Button
               onClick={handleCreate}
-              disabled={!formData.title || !formData.date}
+              disabled={!formData.title || !date}
             >
               Schedule
             </Button>

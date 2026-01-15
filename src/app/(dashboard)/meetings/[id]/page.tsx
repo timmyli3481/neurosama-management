@@ -70,6 +70,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
+import { DateTimePicker } from "@/components/ui/date-picker";
+import { FormattedDate, FormattedFullDate } from "@/components/ui/timezone-date-input";
+import { useTimezone } from "@/context/TimezoneContext";
 
 const meetingTypes = [
   { value: "build_day", label: "Build Day", icon: Wrench, color: "bg-orange-500" },
@@ -91,23 +94,19 @@ const attendanceStatuses: { value: AttendanceStatus; label: string; icon: typeof
   { value: "absent", label: "Absent", icon: XCircle, color: "text-red-500" },
 ];
 
-function formatDateForInput(timestamp?: number): string {
-  if (!timestamp) return "";
-  return new Date(timestamp).toISOString().split("T")[0];
-}
-
 export default function MeetingDetailPage() {
   const router = useRouter();
   const params = useParams();
   const meetingId = params.id as Id<"meetings">;
+  const { dateToUtcTimestamp, utcTimestampToDate } = useTimezone();
 
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [attendanceOpen, setAttendanceOpen] = useState(false);
+  const [editDate, setEditDate] = useState<Date | undefined>(undefined);
   const [formData, setFormData] = useState({
     title: "",
     type: "build_day" as MeetingType,
-    date: "",
     startTime: "",
     endTime: "",
     location: "",
@@ -131,10 +130,10 @@ export default function MeetingDetailPage() {
 
   const handleEdit = () => {
     if (meeting) {
+      setEditDate(utcTimestampToDate(meeting.date));
       setFormData({
         title: meeting.title,
         type: meeting.type,
-        date: formatDateForInput(meeting.date),
         startTime: meeting.startTime ?? "",
         endTime: meeting.endTime ?? "",
         location: meeting.location ?? "",
@@ -146,13 +145,13 @@ export default function MeetingDetailPage() {
   };
 
   const handleUpdate = async () => {
-    if (!formData.title || !formData.date) return;
+    if (!formData.title || !editDate) return;
 
     await updateMeeting({
       meetingId,
       title: formData.title,
       type: formData.type,
-      date: new Date(formData.date).getTime(),
+      date: dateToUtcTimestamp(editDate, formData.startTime || undefined),
       startTime: formData.startTime || undefined,
       endTime: formData.endTime || undefined,
       location: formData.location || undefined,
@@ -302,14 +301,7 @@ export default function MeetingDetailPage() {
           <CardContent className="space-y-3">
             <div className="flex items-center gap-2">
               <CalendarDays className="h-4 w-4 text-muted-foreground" />
-              <span>
-                {new Date(meeting.date).toLocaleDateString("en-US", {
-                  weekday: "long",
-                  year: "numeric",
-                  month: "long",
-                  day: "numeric",
-                })}
-              </span>
+              <FormattedFullDate timestamp={meeting.date} />
             </div>
             {meeting.startTime && (
               <div className="flex items-center gap-2">
@@ -466,7 +458,7 @@ export default function MeetingDetailPage() {
                 >
                   <p className="font-medium">{entry.title}</p>
                   <p className="text-sm text-muted-foreground capitalize">
-                    {entry.category} • {new Date(entry.entryDate).toLocaleDateString()}
+                    {entry.category} • <FormattedDate timestamp={entry.entryDate} format="date" />
                   </p>
                 </Link>
               ))}
@@ -495,60 +487,49 @@ export default function MeetingDetailPage() {
                 />
               </div>
               
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Type</Label>
-                  <Select
-                    value={formData.type}
-                    onValueChange={(v) => setFormData({ ...formData, type: v as MeetingType })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {meetingTypes.map((type) => {
-                        const TypeIcon = type.icon;
-                        return (
-                          <SelectItem key={type.value} value={type.value}>
-                            <div className="flex items-center gap-2">
-                              <TypeIcon className="h-4 w-4" />
-                              {type.label}
-                            </div>
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label>Date *</Label>
-                  <Input
-                    type="date"
-                    value={formData.date}
-                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label>Type</Label>
+                <Select
+                  value={formData.type}
+                  onValueChange={(v) => setFormData({ ...formData, type: v as MeetingType })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {meetingTypes.map((type) => {
+                      const TypeIcon = type.icon;
+                      return (
+                        <SelectItem key={type.value} value={type.value}>
+                          <div className="flex items-center gap-2">
+                            <TypeIcon className="h-4 w-4" />
+                            {type.label}
+                          </div>
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
               </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Start Time</Label>
-                  <Input
-                    type="time"
-                    value={formData.startTime}
-                    onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label>End Time</Label>
-                  <Input
-                    type="time"
-                    value={formData.endTime}
-                    onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
-                  />
-                </div>
+
+              <div className="space-y-2">
+                <Label>Date & Start Time *</Label>
+                <DateTimePicker
+                  value={editDate}
+                  onChange={setEditDate}
+                  time={formData.startTime}
+                  onTimeChange={(t) => setFormData({ ...formData, startTime: t })}
+                  placeholder="Select date & time"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>End Time</Label>
+                <Input
+                  type="time"
+                  value={formData.endTime}
+                  onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
+                />
               </div>
               
               <div className="space-y-2">
@@ -587,7 +568,7 @@ export default function MeetingDetailPage() {
             </Button>
             <Button
               onClick={handleUpdate}
-              disabled={!formData.title || !formData.date}
+              disabled={!formData.title || !editDate}
             >
               Save Changes
             </Button>

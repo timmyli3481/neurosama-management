@@ -57,6 +57,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
+import { DatePicker } from "@/components/ui/date-picker";
+import { FormattedFullDate } from "@/components/ui/timezone-date-input";
+import { useTimezone } from "@/context/TimezoneContext";
 
 const categories = [
   { value: "design", label: "Design", icon: Palette, color: "bg-purple-500" },
@@ -75,13 +78,14 @@ export default function NotebookEntryPage() {
   const router = useRouter();
   const params = useParams();
   const entryId = params.id as Id<"engineeringNotebook">;
+  const { dateToUtcTimestamp, utcTimestampToDate } = useTimezone();
 
   const [editOpen, setEditOpen] = useState(false);
+  const [editEntryDate, setEditEntryDate] = useState<Date | undefined>(undefined);
   const [formData, setFormData] = useState({
     title: "",
     content: "",
     category: "build" as Category,
-    entryDate: "",
     tags: "",
   });
 
@@ -91,11 +95,11 @@ export default function NotebookEntryPage() {
 
   const handleEdit = () => {
     if (entry) {
+      setEditEntryDate(utcTimestampToDate(entry.entryDate));
       setFormData({
         title: entry.title,
         content: entry.content,
         category: entry.category,
-        entryDate: new Date(entry.entryDate).toISOString().split("T")[0],
         tags: entry.tags?.join(", ") ?? "",
       });
       setEditOpen(true);
@@ -103,14 +107,14 @@ export default function NotebookEntryPage() {
   };
 
   const handleUpdate = async () => {
-    if (!formData.title || !formData.content) return;
+    if (!formData.title || !formData.content || !editEntryDate) return;
 
     await updateEntry({
       entryId,
       title: formData.title,
       content: formData.content,
       category: formData.category,
-      entryDate: new Date(formData.entryDate).getTime(),
+      entryDate: dateToUtcTimestamp(editEntryDate),
       tags: formData.tags ? formData.tags.split(",").map((t) => t.trim()) : undefined,
     });
 
@@ -176,12 +180,7 @@ export default function NotebookEntryPage() {
               </Badge>
               <span className="text-sm text-muted-foreground">
                 <Calendar className="h-3 w-3 inline mr-1" />
-                {new Date(entry.entryDate).toLocaleDateString("en-US", {
-                  weekday: "long",
-                  year: "numeric",
-                  month: "long",
-                  day: "numeric",
-                })}
+                <FormattedFullDate timestamp={entry.entryDate} />
               </span>
             </div>
             <h1 className="text-2xl font-bold">{entry.title}</h1>
@@ -352,10 +351,10 @@ export default function NotebookEntryPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Entry Date</Label>
-                  <Input
-                    type="date"
-                    value={formData.entryDate}
-                    onChange={(e) => setFormData({ ...formData, entryDate: e.target.value })}
+                  <DatePicker
+                    value={editEntryDate}
+                    onChange={setEditEntryDate}
+                    placeholder="Select date"
                   />
                 </div>
                 

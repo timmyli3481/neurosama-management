@@ -10,7 +10,7 @@ import {
   useRef,
 } from "react";
 import { useQuery, useMutation } from "convex/react";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth,useClerk } from "@clerk/nextjs";
 import { api } from "../convex/_generated/api";
 import { Id } from "../convex/_generated/dataModel";
 
@@ -35,12 +35,15 @@ type AuthContextType = {
   isApproved: boolean;
   user: User | null;
   refreshAuth: () => Promise<void>;
+  clerkInfo: ReturnType<typeof useClerk>["user"];
+
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { isLoaded, isSignedIn } = useAuth();
+  const { user: clerkInfo } = useClerk();
   const authStatusResult = useQuery(
     api.users.getAuthStatus,
     isLoaded && isSignedIn ? {} : "skip"
@@ -145,6 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isApproved,
         user,
         refreshAuth,
+        clerkInfo,
       }}
     >
       {children}

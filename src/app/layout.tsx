@@ -4,6 +4,7 @@ import "./globals.css";
 import ConvexClientProvider from "@/components/ConvexClientProvider";
 import { ClerkProvider } from "@clerk/nextjs";
 import { AuthProvider } from "@/context/AuthContext";
+import { TimezoneProvider } from "@/context/TimezoneContext";
 
 const inter = Inter({subsets:['latin'],variable:'--font-sans'});
 
@@ -37,7 +38,9 @@ export default function RootLayout({
       >
         <ClerkProvider dynamic>
           <ConvexClientProvider>
-            <AuthProvider>{children}</AuthProvider>
+            <TimezoneProvider>
+              <AuthProvider>{children}</AuthProvider>
+            </TimezoneProvider>
           </ConvexClientProvider>
         </ClerkProvider>
       </body>
