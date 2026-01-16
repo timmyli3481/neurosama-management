@@ -3,6 +3,7 @@ import {
   createRootRoute,
   HeadContent,
   Scripts,
+  Link,
 } from "@tanstack/react-router";
 import { ClerkProvider } from "@clerk/clerk-react";
 import ConvexClientProvider from "@/components/ConvexClientProvider";
@@ -33,7 +34,20 @@ export const Route = createRootRoute({
     ],
   }),
   component: RootLayout,
+  notFoundComponent: NotFound,
 });
+
+function NotFound() {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4">
+      <h1 className="text-4xl font-bold">404</h1>
+      <p className="text-muted-foreground">Page not found</p>
+      <Link to="/" className="text-primary hover:underline">
+        Go back home
+      </Link>
+    </div>
+  );
+}
 
 function RootLayout() {
   const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -44,7 +58,7 @@ function RootLayout() {
         <HeadContent />
       </head>
       <body className="antialiased bg-background text-foreground">
-        <ClerkProvider publishableKey={clerkPubKey}>
+        <ClerkProvider publishableKey={clerkPubKey!}>
           <ConvexClientProvider>
             <TimezoneProvider>
               <AuthProvider>
