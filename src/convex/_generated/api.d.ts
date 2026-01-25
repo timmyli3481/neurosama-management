@@ -8,23 +8,22 @@
  * @module
  */
 
-import type * as activity from "../activity.js";
-import type * as calendar from "../calendar.js";
-import type * as clerk from "../clerk.js";
-import type * as competitions from "../competitions.js";
-import type * as http from "../http.js";
-import type * as inventory from "../inventory.js";
-import type * as invites from "../invites.js";
-import type * as meetings from "../meetings.js";
-import type * as notebook from "../notebook.js";
-import type * as permissions from "../permissions.js";
-import type * as projects from "../projects.js";
-import type * as robot from "../robot.js";
-import type * as scouting from "../scouting.js";
-import type * as settings from "../settings.js";
-import type * as tasks from "../tasks.js";
-import type * as teams from "../teams.js";
-import type * as users from "../users.js";
+import type * as auth_clerk from "../auth/clerk.js";
+import type * as auth_helpers from "../auth/helpers.js";
+import type * as auth_index from "../auth/index.js";
+import type * as auth_invites from "../auth/invites.js";
+import type * as auth_users from "../auth/users.js";
+import type * as calender_FirstEvents from "../calender/FirstEvents.js";
+import type * as calender_main from "../calender/main.js";
+import type * as functions from "../functions.js";
+import type * as integrations_ftcScout from "../integrations/ftcScout.js";
+import type * as integrations_ftcScoutActions from "../integrations/ftcScoutActions.js";
+import type * as integrations_http from "../integrations/http.js";
+import type * as integrations_index from "../integrations/index.js";
+import type * as scouting_index from "../scouting/index.js";
+import type * as scouting_scouting from "../scouting/scouting.js";
+import type * as settings_index from "../settings/index.js";
+import type * as settings_settings from "../settings/settings.js";
 
 import type {
   ApiFromModules,
@@ -33,23 +32,22 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  activity: typeof activity;
-  calendar: typeof calendar;
-  clerk: typeof clerk;
-  competitions: typeof competitions;
-  http: typeof http;
-  inventory: typeof inventory;
-  invites: typeof invites;
-  meetings: typeof meetings;
-  notebook: typeof notebook;
-  permissions: typeof permissions;
-  projects: typeof projects;
-  robot: typeof robot;
-  scouting: typeof scouting;
-  settings: typeof settings;
-  tasks: typeof tasks;
-  teams: typeof teams;
-  users: typeof users;
+  "auth/clerk": typeof auth_clerk;
+  "auth/helpers": typeof auth_helpers;
+  "auth/index": typeof auth_index;
+  "auth/invites": typeof auth_invites;
+  "auth/users": typeof auth_users;
+  "calender/FirstEvents": typeof calender_FirstEvents;
+  "calender/main": typeof calender_main;
+  functions: typeof functions;
+  "integrations/ftcScout": typeof integrations_ftcScout;
+  "integrations/ftcScoutActions": typeof integrations_ftcScoutActions;
+  "integrations/http": typeof integrations_http;
+  "integrations/index": typeof integrations_index;
+  "scouting/index": typeof scouting_index;
+  "scouting/scouting": typeof scouting_scouting;
+  "settings/index": typeof settings_index;
+  "settings/settings": typeof settings_settings;
 }>;
 
 /**

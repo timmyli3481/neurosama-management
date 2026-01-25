@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { usePaginatedQuery, useQuery, useMutation } from "convex/react";
+import { usePaginatedQuery, useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,8 +28,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { TeamForm } from "@/components/teams/TeamForm";
-import { TeamCard } from "@/components/teams/TeamCard";
 import {
   MoreVertical,
   Shield,
@@ -36,6 +36,8 @@ import {
   Settings,
   Users,
   UserCheck,
+  RefreshCw,
+  Trophy,
 } from "lucide-react";
 import { useAuthContext } from "@/context/AuthContext";
 
@@ -45,13 +47,13 @@ export const Route = createFileRoute("/_dashboard/admin")({
 
 function UsersTab() {
   const { results, status, loadMore } = usePaginatedQuery(
-    api.users.listUsers,
+    api.auth.users.listUsers,
     {},
     { initialNumItems: 20 }
   );
 
-  const updateUserRole = useMutation(api.users.updateUserRole);
-  const removeUser = useMutation(api.users.removeUser);
+  const updateUserRole = useMutation(api.auth.users.updateUserRole);
+  const removeUser = useMutation(api.auth.users.removeUser);
 
   const [removeUserId, setRemoveUserId] = useState<Id<"users"> | null>(null);
 
@@ -210,13 +212,13 @@ function UsersTab() {
 
 function WaitlistTab() {
   const { results, status, loadMore } = usePaginatedQuery(
-    api.users.listWaitlist,
+    api.auth.users.listWaitlist,
     {},
     { initialNumItems: 20 }
   );
 
-  const approveFromWaitlist = useMutation(api.users.approveFromWaitlist);
-  const removeFromWaitlist = useMutation(api.users.removeFromWaitlist);
+  const approveFromWaitlist = useMutation(api.auth.users.approveFromWaitlist);
+  const removeFromWaitlist = useMutation(api.auth.users.removeFromWaitlist);
 
   const handleApprove = async (waitlistId: Id<"waitlist">) => {
     await approveFromWaitlist({ waitlistId });
@@ -307,75 +309,142 @@ function WaitlistTab() {
   );
 }
 
-function TeamsTab() {
-  const [createOpen, setCreateOpen] = useState(false);
-
-  const { results, status, loadMore } = usePaginatedQuery(
-    api.teams.listTeams,
-    {},
-    { initialNumItems: 12 }
-  );
-
-  if (status === "LoadingFirstPage") {
-    return (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {[1, 2, 3, 4, 5, 6].map((i) => (
-          <Skeleton key={i} className="h-32 w-full" />
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          New Team
-        </Button>
-      </div>
-
-      {results.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center">
-            <p className="text-muted-foreground mb-4">No teams yet</p>
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Create Team
-            </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {results.map((team) => (
-            <TeamCard key={team._id} team={team} />
-          ))}
-        </div>
-      )}
-
-      {status === "CanLoadMore" && (
-        <div className="flex justify-center">
-          <Button variant="outline" onClick={() => loadMore(12)}>
-            Load More
-          </Button>
-        </div>
-      )}
-
-      <TeamForm open={createOpen} onOpenChange={setCreateOpen} />
-    </div>
-  );
-}
-
 function SettingsTab() {
-  const settings = useQuery(api.settings.getAllSettings);
-  const setWaitlistEnabled = useMutation(api.settings.setWaitlistEnabled);
+  const settings = useQuery(api.settings.settings.getAllSettings);
+  const ftcSettings = useQuery(api.settings.settings.getFtcSetupStatus);
+  const setWaitlistEnabled = useMutation(api.settings.settings.setWaitlistEnabled);
+  const setFtcTeamSettings = useMutation(api.settings.settings.setFtcTeamSettings);
+  const syncFtcData = useAction(api.integrations.ftcScoutActions.syncCurrentTeamData);
 
-  if (settings === undefined) {
+  const [teamNumber, setTeamNumber] = useState("");
+  const [season, setSeason] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Initialize form when ftcSettings loads
+  useEffect(() => {
+    if (ftcSettings?.ftcTeamNumber) {
+      setTeamNumber(ftcSettings.ftcTeamNumber.toString());
+    }
+  }, [ftcSettings]);
+
+  if (settings === undefined || ftcSettings === undefined) {
     return <Skeleton className="h-24 w-full" />;
   }
 
+  const handleSaveFtcSettings = async () => {
+    setIsSaving(true);
+    try {
+      const updates: { teamNumber?: number; season?: number } = {};
+      if (teamNumber) updates.teamNumber = parseInt(teamNumber, 10);
+      if (season) updates.season = parseInt(season, 10);
+      await setFtcTeamSettings(updates);
+      setIsEditing(false);
+    } catch (error) {
+      console.error("Failed to save FTC settings:", error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSyncFtcData = async () => {
+    setIsSyncing(true);
+    setSyncMessage(null);
+    try {
+      const result = await syncFtcData({});
+      setSyncMessage({ type: result.success ? "success" : "error", text: result.message });
+    } catch (error) {
+      setSyncMessage({ type: "error", text: "Failed to sync data" });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
+      {/* FTC Scout Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Trophy className="h-5 w-5 text-primary" />
+            FTC Scout Integration
+          </CardTitle>
+          <CardDescription>
+            Configure your FTC team to enable data syncing from FTC Scout API.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {isEditing ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="ftcTeamNumber">Team Number</Label>
+                  <Input
+                    id="ftcTeamNumber"
+                    type="number"
+                    placeholder="e.g., 12345"
+                    value={teamNumber}
+                    onChange={(e) => setTeamNumber(e.target.value)}
+                    min="1"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="ftcSeason">Season Year</Label>
+                  <Input
+                    id="ftcSeason"
+                    type="number"
+                    placeholder="e.g., 2024"
+                    value={season}
+                    onChange={(e) => setSeason(e.target.value)}
+                    min="2000"
+                    max="2099"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={handleSaveFtcSettings} disabled={isSaving}>
+                  {isSaving ? "Saving..." : "Save"}
+                </Button>
+                <Button variant="outline" onClick={() => setIsEditing(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">
+                    {ftcSettings.isConfigured
+                      ? `Team ${ftcSettings.ftcTeamNumber}`
+                      : "Not configured"}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setIsEditing(true)}>
+                    {ftcSettings.isConfigured ? "Edit" : "Configure"}
+                  </Button>
+                  {ftcSettings.isConfigured && (
+                    <Button onClick={handleSyncFtcData} disabled={isSyncing}>
+                      <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? "animate-spin" : ""}`} />
+                      {isSyncing ? "Syncing..." : "Sync Data"}
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {syncMessage && (
+                <p className={`text-sm ${syncMessage.type === "success" ? "text-green-600" : "text-red-600"}`}>
+                  {syncMessage.text}
+                </p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Waitlist Settings */}
       <Card>
         <CardHeader>
           <CardTitle>Waitlist</CardTitle>
@@ -467,10 +536,6 @@ function AdminPage() {
 
         <TabsContent value="waitlist">
           <WaitlistTab />
-        </TabsContent>
-
-        <TabsContent value="teams">
-          <TeamsTab />
         </TabsContent>
 
         <TabsContent value="settings">

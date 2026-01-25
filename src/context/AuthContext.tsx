@@ -43,10 +43,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { isLoaded, isSignedIn } = useAuth();
   const { user: clerkInfo } = useClerk();
   const authStatusResult = useQuery(
-    api.users.getAuthStatus,
+    api.auth.users.getAuthStatus,
     isLoaded && isSignedIn ? {} : "skip"
   );
-  const ensureUserRegistered = useMutation(api.users.ensureUserRegistered);
+  const ensureUserRegistered = useMutation(api.auth.users.ensureUserRegistered);
   const [authStatus, setAuthStatus] = useState<AuthStatus>({ status: "loading" });
   const isRegistering = useRef(false);
 

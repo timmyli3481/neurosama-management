@@ -1,0 +1,308 @@
+---
+description: Guidelines for working with Convex Ents - an ergonomic layer on top of Convex for database relationships
+globs: src/convex/**/*.ts, src/convex/**/*.tsx
+alwaysApply: false
+---
+
+# Convex Ents
+
+Convex Ents is an ergonomic layer on top of the Convex built-in `ctx.db` API for reading from and writing to the database. It simplifies working with relationships between documents, allows specifying unique fields, default values, and rules (row level security).
+
+Project Setup
+1. Schema Definition (convex/schema.ts)
+Use defineEntSchema and defineEnt instead of vanilla Convex defineSchema and defineTable:
+
+TypeScript
+import { v } from "convex/values";
+import { defineEnt, defineEntSchema, getEntDefinitions } from "convex-ents";
+
+const schema = defineEntSchema({
+  messages: defineEnt({
+    text: v.string(),
+  })
+    .edge("user")
+    .edges("tags"),
+
+  users: defineEnt({
+    name: v.string(),
+  })
+    .field("email", v.string(), { unique: true })
+    .edges("messages", { ref: true }),
+
+  tags: defineEnt({
+    name: v.string(),
+  }).edges("messages"),
+});
+
+export default schema;
+
+// IMPORTANT: Always export entDefinitions for runtime relationship resolution
+export const entDefinitions = getEntDefinitions(schema);
+2. Custom Functions (convex/functions.ts)
+TypeScript
+import { entsTableFactory } from "convex-ents";
+import {
+  customCtx,
+  customMutation,
+  customQuery,
+} from "convex-helpers/server/customFunctions";
+import {
+  internalMutation as baseInternalMutation,
+  internalQuery as baseInternalQuery,
+  mutation as baseMutation,
+  query as baseQuery,
+} from "./_generated/server";
+import { entDefinitions } from "./schema";
+
+export const query = customQuery(
+  baseQuery,
+  customCtx(async (ctx) => ({
+    table: entsTableFactory(ctx, entDefinitions),
+    db: undefined,
+  })),
+);
+
+export const internalQuery = customQuery(
+  baseInternalQuery,
+  customCtx(async (ctx) => ({
+    table: entsTableFactory(ctx, entDefinitions),
+    db: undefined,
+  })),
+);
+
+export const mutation = customMutation(
+  baseMutation,
+  customCtx(async (ctx) => ({
+    table: entsTableFactory(ctx, entDefinitions),
+    db: undefined,
+  })),
+);
+
+export const internalMutation = customMutation(
+  baseInternalMutation,
+  customCtx(async (ctx) => ({
+    table: entsTableFactory(ctx, entDefinitions),
+    db: undefined,
+  })),
+);
+3. Type Helpers (convex/types.ts)
+TypeScript
+import { GenericEnt, GenericEntWriter } from "convex-ents";
+import { CustomCtx } from "convex-helpers/server/customFunctions";
+import { TableNames } from "./_generated/dataModel";
+import { mutation, query } from "./functions";
+import { entDefinitions } from "./schema";
+
+export type QueryCtx = CustomCtx<typeof query>;
+export type MutationCtx = CustomCtx<typeof mutation>;
+
+export type Ent<TableName extends TableNames> = GenericEnt<
+  typeof entDefinitions,
+  TableName
+>;
+export type EntWriter<TableName extends TableNames> = GenericEntWriter<
+  typeof entDefinitions,
+  TableName
+>;
+Schema API
+Field Options
+TypeScript
+// Indexed field - creates an index for efficient lookups
+defineEnt({}).field("email", v.string(), { index: true })
+
+// Unique field - enforces uniqueness and creates an index
+defineEnt({}).field("email", v.string(), { unique: true })
+
+// Default value - automatically applied on insert
+defineEnt({}).field("numLikes", v.number(), { default: 0 })
+Edge Definitions (Relationships)
+1:1 Edge (foreign key on this table)
+TypeScript
+defineEnt({}).edge("user")                                    // Creates userId field
+defineEnt({}).edge("author", { field: "authorId", to: "users" }) // Custom field name
+defineEnt({}).edge("profile", { optional: true })             // Optional edge
+1:1 Edge (foreign key on other table)
+TypeScript
+defineEnt({}).edge("profile", { ref: true })
+defineEnt({}).edge("secret", { ref: "ownerId" })  // Explicit field reference
+1:Many Edge
+TypeScript
+// "One" side - message belongs to user
+defineEnt({ text: v.string() }).edge("user")
+
+// "Many" side - user has many messages  
+defineEnt({ name: v.string() }).edges("messages", { ref: true })
+Many:Many Edge
+TypeScript
+defineEnt({}).edges("tags")  // Auto-creates junction table
+
+// Custom junction table
+defineEnt({}).edges("attachments", {
+  to: "attachments",
+  table: "posts_to_attachments",
+})
+Self-Referential Edges
+TypeScript
+// Symmetric (friends - bidirectional)
+defineEnt({}).edges("friends", { to: "users" })
+
+// Asymmetric (followers/followees - directional)
+defineEnt({}).edges("followers", { to: "users", inverse: "followees" })
+Deletion Behavior
+TypeScript
+// Soft delete - sets deletionTime field instead of deleting
+defineEnt({}).deletion("soft")
+
+// Scheduled delete - soft delete then hard delete later
+defineEnt({}).deletion("scheduled")
+defineEnt({}).deletion("scheduled", { delayMs: 60000 })
+
+// Edge deletion behavior
+.edge("member", { deletion: "soft" })
+.edge("file", { to: "_storage", deletion: "hard" })
+Indexes
+TypeScript
+defineEnt({})
+  .index("numLikesAndType", ["type", "numLikes"])
+  .searchIndex("text", {
+    searchField: "text",
+    filterFields: ["type"],
+  })
+Reading Ents
+Get Single Ent
+TypeScript
+const task = await ctx.table("tasks").get(taskId);      // Returns null if not found
+const task = await ctx.table("tasks").getX(taskId);     // Throws if not found
+
+// By indexed field
+const user = await ctx.table("users").get("email", "steve@apple.com");
+const user = await ctx.table("users").getX("email", "steve@apple.com");
+
+// By compound index
+const user = await ctx.table("users").get("nameAndRank", "Steve", 10);
+Get Multiple Ents
+TypeScript
+const tasks = await ctx.table("tasks").getMany([id1, id2]);   // Returns array with nulls
+const tasks = await ctx.table("tasks").getManyX([id1, id2]);  // Throws if any not found
+Query All
+TypeScript
+const allTasks = await ctx.table("tasks");
+Traversing Edges
+TypeScript
+// Single related ent
+const user = await ctx.table("messages").getX(messageId).edge("user");
+
+// Multiple related ents
+const messages = await ctx.table("users").getX(userId).edge("messages");
+
+// Chained traversal with mapping
+const invites = await ctx
+  .table("teams")
+  .getX(teamId)
+  .edge("invites")
+  .map(async (invite) => ({
+    _id: invite._id,
+    email: invite.email,
+    role: (await invite.edge("role")).name,
+  }));
+Writing Ents
+Insert
+TypeScript
+const taskId = await ctx.table("tasks").insert({ text: "Win at life" });
+const task = await ctx.table("tasks").insert({ text: "Win at life" }).get();
+
+// Insert many
+const ids = await ctx.table("tasks").insertMany([
+  { text: "Task 1" },
+  { text: "Task 2" },
+]);
+Update
+TypeScript
+await ctx.table("tasks").getX(taskId).patch({ text: "Changed" });
+await ctx.table("tasks").getX(taskId).replace({ text: "New text" });
+
+// On retrieved ent
+const task = await ctx.table("tasks").getX(taskId);
+await task.patch({ text: "Changed" });
+Delete
+TypeScript
+await ctx.table("tasks").getX(taskId).delete();
+
+const task = await ctx.table("tasks").getX(taskId);
+await task.delete();
+Managing Edges
+TypeScript
+// Create edge on insert (1:1 or 1:many)
+await ctx.table("messages").insert({ text: "Hello", userId: userId });
+
+// Many:many edges
+await ctx.table("messages").getX(messageId).edge("tags").add(tagId);
+await ctx.table("messages").getX(messageId).edge("tags").remove(tagId);
+const hasTag = await ctx.table("messages").getX(messageId).edge("tags").has(tagId);
+Scheduled Deletion Setup
+Add to your functions file:
+
+TypeScript
+import { scheduledDeleteFactory } from "convex-ents";
+
+export const scheduledDelete = scheduledDeleteFactory(entDefinitions);
+Testing with convex-test
+Create convex/setup.testing.ts:
+
+TypeScript
+import { convexTest as baseConvexTest } from "convex-test";
+import { SchemaDefinition, StorageActionWriter } from "convex/server";
+import { EntDefinition, entsTableFactory } from "convex-ents";
+import { MutationCtx } from "./_generated/server";
+import { entDefinitions } from "./schema";
+
+type GenericEntSchema = Record<string, EntDefinition>;
+
+export function convexTest<Schema extends GenericEntSchema>(
+  schema: SchemaDefinition<Schema, boolean>,
+) {
+  return baseConvexTest(schema);
+}
+
+export async function runCtx(
+  ctx: MutationCtx & { storage: StorageActionWriter },
+) {
+  return {
+    ...ctx,
+    table: entsTableFactory(ctx, entDefinitions),
+    db: undefined,
+  };
+}
+Example test:
+
+TypeScript
+import { expect, test } from "vitest";
+import { api } from "./_generated/api";
+import { convexTest, runCtx } from "./setup.testing";
+import schema from "./schema";
+
+test("sending messages", async () => {
+  const t = convexTest(schema);
+  const userId = await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    return await ctx.table("users").insert({ name: "Sarah" });
+  });
+
+  await t.mutation(api.messages.send, { text: "Hi!", userId });
+  const messages = await t.query(api.messages.list);
+  expect(messages).toHaveLength(1);
+});
+Key Differences from ctx.db
+ctx.db	ctx.table (Ents)
+ctx.db.get(id)	ctx.table("tasks").get(id)
+ctx.db.insert("tasks", {...})	ctx.table("tasks").insert({...})
+ctx.db.patch(id, {...})	ctx.table("tasks").getX(id).patch({...})
+ctx.db.delete(id)	ctx.table("tasks").getX(id).delete()
+Manual relationship queries	ent.edge("user") traversal
+Best Practices
+Always export entDefinitions from your schema file
+Use getX methods when you expect the ent to exist (throws clear errors)
+Set db: undefined in custom functions to enforce using ctx.table
+Define edges on both sides of relationships for bidirectional traversal
+Use ref: true on the "many" side of 1:many relationships
+Consider soft deletion for ents that may need recovery or audit trails

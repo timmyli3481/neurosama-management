@@ -3,20 +3,13 @@ import {
   Home,
   FolderKanban,
   CheckSquare,
-  Users,
   Settings,
   Menu,
-  Trophy,
-  Bot,
-  BookOpen,
-  Target,
-  Package,
-  Calendar,
-  Activity,
-  CalendarDays,
   Wrench,
-  GanttChart,
   Globe,
+  CalendarDays,
+  Trophy,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthContext } from "@/context/AuthContext";
@@ -60,50 +53,28 @@ const navSections: NavSection[] = [
         icon: Home,
         visibleTo: ["owner", "admin", "member"],
       },
-    ],
-  },
-  {
-    title: "FTC SEASON",
-    items: [
       {
-        href: "/competitions",
-        label: "Competitions",
+        href: "/calendar",
+        label: "Calendar",
+        icon: CalendarDays,
+        visibleTo: ["owner", "admin", "member"],
+      },
+      {
+        href: "/events",
+        label: "Team Events",
         icon: Trophy,
         visibleTo: ["owner", "admin", "member"],
       },
       {
         href: "/scouting",
         label: "Scouting",
-        icon: Target,
-        visibleTo: ["owner", "admin", "member"],
-      },
-      {
-        href: "/timeline",
-        label: "Timeline",
-        icon: GanttChart,
+        icon: Search,
         visibleTo: ["owner", "admin", "member"],
       },
     ],
   },
   {
-    title: "ROBOT",
-    items: [
-      {
-        href: "/robot",
-        label: "Subsystems",
-        icon: Bot,
-        visibleTo: ["owner", "admin", "member"],
-      },
-      {
-        href: "/inventory",
-        label: "Inventory",
-        icon: Package,
-        visibleTo: ["owner", "admin", "member"],
-      },
-    ],
-  },
-  {
-    title: "TEAM",
+    title: "WORK",
     items: [
       {
         href: "/projects",
@@ -115,41 +86,6 @@ const navSections: NavSection[] = [
         href: "/tasks",
         label: "My Tasks",
         icon: CheckSquare,
-        visibleTo: ["owner", "admin", "member"],
-      },
-      {
-        href: "/teams",
-        label: "Teams",
-        icon: Users,
-        visibleTo: ["owner", "admin", "member"],
-        requiresTeamLeader: true,
-      },
-      {
-        href: "/meetings",
-        label: "Meetings",
-        icon: CalendarDays,
-        visibleTo: ["owner", "admin", "member"],
-      },
-      {
-        href: "/notebook",
-        label: "Notebook",
-        icon: BookOpen,
-        visibleTo: ["owner", "admin", "member"],
-      },
-    ],
-  },
-  {
-    items: [
-      {
-        href: "/calendar",
-        label: "Calendar",
-        icon: Calendar,
-        visibleTo: ["owner", "admin", "member"],
-      },
-      {
-        href: "/activity",
-        label: "Activity",
-        icon: Activity,
         visibleTo: ["owner", "admin", "member"],
       },
     ],
