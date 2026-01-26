@@ -68,7 +68,8 @@ const schema = defineEntSchema({
 
   teamInfo: defineEnt({
     teamNumber: v.number(),
-    data: v.any(), // TeamStatsFragmentFragment
+    name: v.optional(v.string()), // Team name - can be set even for placeholder teams
+    data: v.optional(v.any()), // TeamStatsFragmentFragment - null means not yet fetched
   })
     .index("by_teamNumber", ["teamNumber"])
     .edges("teamEvents", { ref: "teamInfoId" })
@@ -143,6 +144,7 @@ const schema = defineEntSchema({
     data: v.any(), // TeamMatchParticipationCoreFragment (this team's participation only)
   })
     .index("by_startDate", ["startDate"])
+    .index("by_teamInfoId_and_matchId", ["teamInfoId", "matchId"])
     .edge("teamInfo", { to: "teamInfo", field: "teamInfoId" })
     .edge("teamEvent", { to: "teamEvents", field: "teamEventId" })
     .edge("match", { to: "officialMatches", field: "matchId" }),

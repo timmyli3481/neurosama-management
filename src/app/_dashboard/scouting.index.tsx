@@ -66,7 +66,7 @@ function EventSearchCard({
   const isSameDay = event.start === event.end;
 
   const handleNavigate = () => {
-    navigate({ to: "/scouting/event/$code", params: { code: eventCode } });
+    navigate({ to: "/events/$code", params: { code: eventCode } });
   };
 
   return (
@@ -124,9 +124,11 @@ function EventSearchCard({
 
 function ScoutedTeamCard({
   teamCode,
+  teamName,
   commentCount,
 }: {
   teamCode: string;
+  teamName?: string;
   commentCount: number;
 }) {
   const navigate = useNavigate();
@@ -151,6 +153,11 @@ function ScoutedTeamCard({
             </div>
             <div>
               <h3 className="font-semibold">Team {teamCode}</h3>
+              {teamName && (
+                <p className="text-xs text-muted-foreground truncate max-w-[150px]">
+                  {teamName}
+                </p>
+              )}
               <p className="text-sm text-muted-foreground flex items-center gap-1">
                 <MessageSquare className="h-3 w-3" />
                 {commentCount} note{commentCount !== 1 ? "s" : ""}
@@ -186,7 +193,7 @@ function ScoutingPage() {
     e.preventDefault();
     if (eventSearch.trim()) {
       navigate({
-        to: "/scouting/event/$code",
+        to: "/events/$code",
         params: { code: eventSearch.trim().toUpperCase() },
       });
     }
@@ -366,6 +373,7 @@ function ScoutingPage() {
                 <ScoutedTeamCard
                   key={team.id}
                   teamCode={team.teamCode}
+                  teamName={team.teamName}
                   commentCount={team.commentCount}
                 />
               ))}

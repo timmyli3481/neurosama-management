@@ -241,7 +241,7 @@ function EventCard({
       className="hover:shadow-md transition-shadow cursor-pointer"
       onClick={() =>
         navigate({
-          to: "/scouting/event/$code",
+          to: "/events/$code",
           params: { code: eventCode },
         })
       }
@@ -681,9 +681,15 @@ function ScoutingTeamPage() {
     }
   }, [syncTeamData, teamNumber]);
 
-  // Auto-sync when team not found
+  // Auto-sync when team not found OR when team exists but data is null (needs sync)
   useEffect(() => {
+    // Case 1: Team doesn't exist at all - auto sync to fetch
     if (teamData === null && !autoSyncAttempted && !isSyncing) {
+      setAutoSyncAttempted(true);
+      handleSync();
+    }
+    // Case 2: Team exists but data is null - auto sync to populate data
+    if (teamData && teamData.needsSync && !autoSyncAttempted && !isSyncing) {
       setAutoSyncAttempted(true);
       handleSync();
     }
@@ -768,8 +774,35 @@ function ScoutingTeamPage() {
     );
   }
 
+  // Team exists but data needs sync - show loading state
+  // This handles both before and during auto-sync
+  if (teamData.needsSync) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <Skeleton className="h-10 w-10" />
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-24" />
+          ))}
+        </div>
+        <Skeleton className="h-96" />
+      </div>
+    );
+  }
+
   // Parse the team data
-  const team = teamData.data as TeamCoreFragment;
+  const teamCoreData = teamData.data as TeamCoreFragment;
+  // Use name from the direct field if available, otherwise from the data object
+  const team: TeamCoreFragment = {
+    ...teamCoreData,
+    name: teamData.name || teamCoreData.name,
+  };
   const events = teamData.events.map((e) => ({
     id: e.id,
     eventCode: e.eventCode,

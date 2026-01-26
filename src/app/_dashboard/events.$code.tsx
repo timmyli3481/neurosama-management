@@ -1,5 +1,5 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "convex/react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQuery, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,6 +17,13 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   ArrowLeft,
   Calendar,
   MapPin,
@@ -29,15 +36,86 @@ import {
   Circle,
   Video,
   Globe,
+  RefreshCw,
+  AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTimezone } from "@/context/TimezoneContext";
+import { useState, useEffect, useCallback, useMemo } from "react";
+
+export const Route = createFileRoute("/_dashboard/events/$code")({
+  component: EventDetailPage,
+});
+
+// ==========================================
+// TIMEZONE-AWARE DATE HELPERS
+// ==========================================
+
+/**
+ * Get date parts (year, month, day) in a specific timezone
+ */
+function getDatePartsInTimezone(
+  timestamp: number,
+  timezone: string
+): { year: number; month: number; day: number } {
+  const date = new Date(timestamp);
+
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  });
+
+  const parts = formatter.formatToParts(date);
+  const getValue = (type: string) => {
+    const part = parts.find((p) => p.type === type);
+    return part ? parseInt(part.value, 10) : 0;
+  };
+
+  return {
+    year: getValue("year"),
+    month: getValue("month"),
+    day: getValue("day"),
+  };
+}
+
+/**
+ * Parse a date string (YYYY-MM-DD) in a specific timezone and return UTC timestamp.
+ * The date is interpreted as midnight (start of day) in the specified timezone.
+ */
+function parseDateStringToTimestamp(dateString: string, eventTimezone: string): number {
+  // Parse the date string
+  const [year, month, day] = dateString.split("-").map(Number);
+  
+  // Create a date at noon UTC as a starting point
+  const testDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  
+  // Get what this appears as in the event's timezone
+  const testParts = getDatePartsInTimezone(testDate.getTime(), eventTimezone);
+  
+  // Adjust if needed (handles edge cases around day boundaries)
+  const dayDiff = day - testParts.day;
+  const adjustedDate = new Date(testDate.getTime() + dayDiff * 24 * 60 * 60 * 1000);
+  
+  // Find midnight in the event's timezone
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: eventTimezone,
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  });
+  const timeParts = formatter.formatToParts(adjustedDate);
+  const hour = parseInt(timeParts.find(p => p.type === "hour")?.value || "0", 10);
+  const minute = parseInt(timeParts.find(p => p.type === "minute")?.value || "0", 10);
+  
+  return adjustedDate.getTime() - (hour * 60 + minute) * 60 * 1000;
+}
 
 // ==========================================
 // TYPE DEFINITIONS (mapped from GraphQL fragments)
 // ==========================================
 
-// LocationFieldsFragment
 type LocationFields = {
   venue: string | null;
   city: string;
@@ -45,7 +123,6 @@ type LocationFields = {
   country: string;
 };
 
-// EventCoreFragmentFragment
 type EventCoreFragment = {
   season: number;
   code: string;
@@ -57,8 +134,8 @@ type EventCoreFragment = {
   leagueCode: string | null;
   districtCode: string | null;
   divisionCode: string | null;
-  start: string; // Date
-  end: string; // Date
+  start: string;
+  end: string;
   timezone: string;
   remote: boolean;
   hybrid: boolean;
@@ -75,7 +152,6 @@ type EventCoreFragment = {
   updatedAt: string;
 };
 
-// TeamMatchParticipationCoreFragment
 type TeamMatchParticipationCore = {
   season: number;
   eventCode: string;
@@ -86,7 +162,6 @@ type TeamMatchParticipationCore = {
   teamNumber: number;
 };
 
-// MatchScores2025AllianceFieldsFragment (simplified)
 type MatchScores2025Alliance = {
   alliance: Alliance;
   totalPoints: number;
@@ -96,7 +171,6 @@ type MatchScores2025Alliance = {
   penaltyPointsByOpp: number;
 };
 
-// MatchCoreFragmentFragment
 type MatchCoreFragment = {
   season: number;
   eventCode: string;
@@ -121,7 +195,6 @@ type MatchCoreFragment = {
   } | null;
 };
 
-// AwardFieldsFragment
 type AwardFields = {
   teamNumber: number;
   type: AwardType;
@@ -130,7 +203,6 @@ type AwardFields = {
   divisionName: string | null;
 };
 
-// Enums
 type EventType =
   | "Championship"
   | "DemoExhibition"
@@ -150,11 +222,8 @@ type EventType =
   | "Workshop";
 
 type TournamentLevel = "DoubleElim" | "Finals" | "Quals" | "Semis";
-
 type Alliance = "Blue" | "Red" | "Solo";
-
 type AllianceRole = "Captain" | "FirstPick" | "SecondPick" | "Solo";
-
 type Station = "NotOnField" | "One" | "Solo" | "Two";
 
 type AwardType =
@@ -179,10 +248,6 @@ type AwardType =
   | "Think"
   | "TopRanked"
   | "Winner";
-  
-export const Route = createFileRoute("/_dashboard/events/$code")({
-  component: EventDetailPage,
-});
 
 // ==========================================
 // HELPER FUNCTIONS
@@ -276,7 +341,6 @@ function formatLocation(location: LocationFields): string {
 // COMPONENTS
 // ==========================================
 
-// Event Status Badge
 function EventStatusBadge({ event }: { event: EventCoreFragment }) {
   if (event.finished) {
     return (
@@ -310,17 +374,32 @@ function EventStatusBadge({ event }: { event: EventCoreFragment }) {
   );
 }
 
-// Event Header Component
 function EventHeader({ event }: { event: EventCoreFragment }) {
-  const { formatDate } = useTimezone();
+  const { formatDate, timezone } = useTimezone();
 
-  const startDate = new Date(event.start);
-  const endDate = new Date(event.end);
-  const isSameDay = event.start === event.end;
+  // Convert string dates to timestamps using the event's timezone
+  const startTimestamp = useMemo(
+    () => parseDateStringToTimestamp(event.start, event.timezone),
+    [event.start, event.timezone]
+  );
+  const endTimestamp = useMemo(
+    () => parseDateStringToTimestamp(event.end, event.timezone),
+    [event.end, event.timezone]
+  );
+
+  // Check if same day in the user's selected timezone
+  const isSameDay = useMemo(() => {
+    const startParts = getDatePartsInTimezone(startTimestamp, timezone);
+    const endParts = getDatePartsInTimezone(endTimestamp, timezone);
+    return (
+      startParts.year === endParts.year &&
+      startParts.month === endParts.month &&
+      startParts.day === endParts.day
+    );
+  }, [startTimestamp, endTimestamp, timezone]);
 
   return (
     <div className="space-y-4">
-      {/* Back button and title */}
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
@@ -343,9 +422,7 @@ function EventHeader({ event }: { event: EventCoreFragment }) {
         </div>
       </div>
 
-      {/* Event info cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {/* Date Card */}
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
             <div className="rounded-lg bg-primary/10 p-2">
@@ -355,15 +432,15 @@ function EventHeader({ event }: { event: EventCoreFragment }) {
               <p className="text-sm text-muted-foreground">Date</p>
               <p className="font-medium">
                 {isSameDay
-                  ? formatDate(startDate.getTime(), {
+                  ? formatDate(startTimestamp, {
                       month: "long",
                       day: "numeric",
                       year: "numeric",
                     })
-                  : `${formatDate(startDate.getTime(), {
+                  : `${formatDate(startTimestamp, {
                       month: "short",
                       day: "numeric",
-                    })} - ${formatDate(endDate.getTime(), {
+                    })} - ${formatDate(endTimestamp, {
                       month: "short",
                       day: "numeric",
                       year: "numeric",
@@ -373,7 +450,6 @@ function EventHeader({ event }: { event: EventCoreFragment }) {
           </CardContent>
         </Card>
 
-        {/* Location Card */}
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
             <div className="rounded-lg bg-primary/10 p-2">
@@ -393,7 +469,6 @@ function EventHeader({ event }: { event: EventCoreFragment }) {
           </CardContent>
         </Card>
 
-        {/* Field Count Card */}
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
             <div className="rounded-lg bg-primary/10 p-2">
@@ -411,7 +486,6 @@ function EventHeader({ event }: { event: EventCoreFragment }) {
           </CardContent>
         </Card>
 
-        {/* Links Card */}
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
             <div className="rounded-lg bg-primary/10 p-2">
@@ -453,8 +527,13 @@ function EventHeader({ event }: { event: EventCoreFragment }) {
   );
 }
 
-// Match Row Component
-function MatchRow({ match }: { match: MatchCoreFragment }) {
+function MatchRow({
+  match,
+  onTeamClick,
+}: {
+  match: MatchCoreFragment;
+  onTeamClick: (teamNumber: number) => void;
+}) {
   const { formatDate } = useTimezone();
 
   const redTeams = match.teams.filter((t) => t.alliance === "Red");
@@ -464,13 +543,9 @@ function MatchRow({ match }: { match: MatchCoreFragment }) {
   const blueScore = match.scores?.blue?.totalPoints;
 
   const redWon =
-    redScore !== undefined &&
-    blueScore !== undefined &&
-    redScore > blueScore;
+    redScore !== undefined && blueScore !== undefined && redScore > blueScore;
   const blueWon =
-    redScore !== undefined &&
-    blueScore !== undefined &&
-    blueScore > redScore;
+    redScore !== undefined && blueScore !== undefined && blueScore > redScore;
 
   return (
     <TableRow>
@@ -494,7 +569,17 @@ function MatchRow({ match }: { match: MatchCoreFragment }) {
               Red
             </span>
             <span className="text-sm">
-              {redTeams.map((t) => t.teamNumber).join(" / ")}
+              {redTeams.map((t, i) => (
+                <span key={t.teamNumber}>
+                  {i > 0 && " / "}
+                  <button
+                    onClick={() => onTeamClick(t.teamNumber)}
+                    className="hover:underline hover:text-primary"
+                  >
+                    {t.teamNumber}
+                  </button>
+                </span>
+              ))}
             </span>
           </div>
           <div
@@ -507,7 +592,17 @@ function MatchRow({ match }: { match: MatchCoreFragment }) {
               Blue
             </span>
             <span className="text-sm">
-              {blueTeams.map((t) => t.teamNumber).join(" / ")}
+              {blueTeams.map((t, i) => (
+                <span key={t.teamNumber}>
+                  {i > 0 && " / "}
+                  <button
+                    onClick={() => onTeamClick(t.teamNumber)}
+                    className="hover:underline hover:text-primary"
+                  >
+                    {t.teamNumber}
+                  </button>
+                </span>
+              ))}
             </span>
           </div>
         </div>
@@ -561,9 +656,13 @@ function MatchRow({ match }: { match: MatchCoreFragment }) {
   );
 }
 
-// Matches Tab Component
-function MatchesTab({ matches }: { matches: MatchCoreFragment[] }) {
-  // Group matches by tournament level
+function MatchesTab({
+  matches,
+  onTeamClick,
+}: {
+  matches: MatchCoreFragment[];
+  onTeamClick: (teamNumber: number) => void;
+}) {
   const groupedMatches = matches.reduce(
     (acc, match) => {
       const level = match.tournamentLevel;
@@ -574,7 +673,6 @@ function MatchesTab({ matches }: { matches: MatchCoreFragment[] }) {
     {} as Record<TournamentLevel, MatchCoreFragment[]>
   );
 
-  // Sort matches within each group
   Object.values(groupedMatches).forEach((group) => {
     group.sort((a, b) => {
       if (a.series !== b.series) return a.series - b.series;
@@ -582,7 +680,6 @@ function MatchesTab({ matches }: { matches: MatchCoreFragment[] }) {
     });
   });
 
-  // Order of tournament levels
   const levelOrder: TournamentLevel[] = [
     "Quals",
     "Semis",
@@ -627,7 +724,11 @@ function MatchesTab({ matches }: { matches: MatchCoreFragment[] }) {
                   </TableHeader>
                   <TableBody>
                     {levelMatches.map((match) => (
-                      <MatchRow key={match.id} match={match} />
+                      <MatchRow
+                        key={match.id}
+                        match={match}
+                        onTeamClick={onTeamClick}
+                      />
                     ))}
                   </TableBody>
                 </Table>
@@ -640,7 +741,325 @@ function MatchesTab({ matches }: { matches: MatchCoreFragment[] }) {
   );
 }
 
-// Award Card Component
+type QuickStatFields = {
+  value: number;
+  rank: number;
+};
+
+type QuickStatsFields = {
+  season: number;
+  number: number;
+  tot: QuickStatFields;
+  auto: QuickStatFields;
+  dc: QuickStatFields;
+  eg: QuickStatFields;
+  count: number;
+};
+
+type TeamEventData = {
+  teamNumber: number;
+  teamName?: string; // Team name - can be set even for placeholder teams
+  teamInfoId: string | null; // null if team not in teamEvents yet
+  teamData?: {
+    number: number;
+    name: string;
+    schoolName: string | null;
+    location: LocationFields;
+    quickStats: QuickStatsFields | null;
+  };
+};
+
+type TeamsViewMode = "all" | "opr";
+type SortMetric = "tot" | "auto" | "dc" | "eg";
+
+function TeamsTab({
+  teams,
+  matches,
+  onTeamClick,
+  onSyncAllTeams,
+  isSyncingTeams,
+}: {
+  teams: TeamEventData[];
+  matches: MatchCoreFragment[];
+  onTeamClick: (teamNumber: number) => void;
+  onSyncAllTeams: () => void;
+  isSyncingTeams: boolean;
+}) {
+  const [viewMode, setViewMode] = useState<TeamsViewMode>("all");
+  const [sortMetric, setSortMetric] = useState<SortMetric>("tot");
+
+  // Build match stats for each team from matches
+  const teamStatsMap = useMemo(() => {
+    const map = new Map<
+      number,
+      { matchCount: number; wins: number; losses: number }
+    >();
+
+    matches.forEach((match) => {
+      const redTeams = match.teams.filter((t) => t.alliance === "Red");
+      const blueTeams = match.teams.filter((t) => t.alliance === "Blue");
+
+      const redScore = match.scores?.red?.totalPoints ?? 0;
+      const blueScore = match.scores?.blue?.totalPoints ?? 0;
+      const redWon = match.hasBeenPlayed && redScore > blueScore;
+      const blueWon = match.hasBeenPlayed && blueScore > redScore;
+
+      redTeams.forEach((t) => {
+        const existing = map.get(t.teamNumber) ?? {
+          matchCount: 0,
+          wins: 0,
+          losses: 0,
+        };
+        existing.matchCount++;
+        if (redWon) existing.wins++;
+        if (blueWon) existing.losses++;
+        map.set(t.teamNumber, existing);
+      });
+
+      blueTeams.forEach((t) => {
+        const existing = map.get(t.teamNumber) ?? {
+          matchCount: 0,
+          wins: 0,
+          losses: 0,
+        };
+        existing.matchCount++;
+        if (blueWon) existing.wins++;
+        if (redWon) existing.losses++;
+        map.set(t.teamNumber, existing);
+      });
+    });
+
+    return map;
+  }, [matches]);
+
+  // Separate synced and unsynced teams
+  const { syncedTeams, unsyncedTeams } = useMemo(() => {
+    const synced: TeamEventData[] = [];
+    const unsynced: TeamEventData[] = [];
+    teams.forEach((team) => {
+      if (team.teamData) {
+        synced.push(team);
+      } else {
+        unsynced.push(team);
+      }
+    });
+    return { syncedTeams: synced, unsyncedTeams: unsynced };
+  }, [teams]);
+
+  // Teams sorted by selected metric (only synced teams with quickStats)
+  const teamsByOpr = useMemo(() => {
+    return [...syncedTeams]
+      .filter((t) => t.teamData?.quickStats?.tot?.value !== undefined)
+      .sort((a, b) => {
+        const aValue = a.teamData?.quickStats?.[sortMetric]?.value ?? 0;
+        const bValue = b.teamData?.quickStats?.[sortMetric]?.value ?? 0;
+        return bValue - aValue; // Descending order
+      });
+  }, [syncedTeams, sortMetric]);
+
+  if (teams.length === 0) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-12">
+          <p className="text-muted-foreground">No teams available yet.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Controls */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Button
+            variant={viewMode === "all" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setViewMode("all")}
+          >
+            <Users className="h-4 w-4 mr-2" />
+            All Teams ({teams.length})
+          </Button>
+          <Button
+            variant={viewMode === "opr" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setViewMode("opr")}
+            disabled={teamsByOpr.length === 0}
+          >
+            <Trophy className="h-4 w-4 mr-2" />
+            OPR Ranking ({teamsByOpr.length})
+          </Button>
+        </div>
+        {unsyncedTeams.length > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onSyncAllTeams}
+            disabled={isSyncingTeams}
+          >
+            <RefreshCw
+              className={cn("h-4 w-4 mr-2", isSyncingTeams && "animate-spin")}
+            />
+            {isSyncingTeams
+              ? "Syncing..."
+              : `Sync ${unsyncedTeams.length} Unsynced Teams`}
+          </Button>
+        )}
+      </div>
+
+      {/* All Teams View */}
+      {viewMode === "all" && (
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {teams.map((team) => {
+            const stats = teamStatsMap.get(team.teamNumber) ?? {
+              matchCount: 0,
+              wins: 0,
+              losses: 0,
+            };
+            const isSynced = !!team.teamData;
+            return (
+              <Card
+                key={team.teamNumber}
+                className={cn(
+                  "hover:shadow-md transition-shadow cursor-pointer",
+                  !isSynced && "border-dashed"
+                )}
+                onClick={() => onTeamClick(team.teamNumber)}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold">Team {team.teamNumber}</h3>
+                        {!isSynced && (
+                          <Badge variant="outline" className="text-xs">
+                            Unsynced
+                          </Badge>
+                        )}
+                      </div>
+                      {(team.teamName || team.teamData?.name) && (
+                        <p className="text-xs text-muted-foreground truncate max-w-[150px]">
+                          {team.teamName || team.teamData?.name}
+                        </p>
+                      )}
+                      <p className="text-sm text-muted-foreground">
+                        {stats.matchCount} matches
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-medium text-green-600">
+                        {stats.wins}W
+                      </p>
+                      <p className="text-sm font-medium text-red-600">
+                        {stats.losses}L
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* OPR Ranking View */}
+      {viewMode === "opr" && (
+        <Card>
+          <CardHeader className="pb-4">
+            <div className="flex items-center justify-between gap-4">
+              <CardTitle className="text-lg">Rankings</CardTitle>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Sort by:</span>
+                <Select
+                  value={sortMetric}
+                  onValueChange={(value) => setSortMetric(value as SortMetric)}
+                >
+                  <SelectTrigger className="w-[140px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="tot">Total OPR</SelectItem>
+                    <SelectItem value="auto">Auto</SelectItem>
+                    <SelectItem value="dc">TeleOp</SelectItem>
+                    <SelectItem value="eg">Endgame</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ScrollArea className="w-full">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-16">Rank</TableHead>
+                    <TableHead>Team</TableHead>
+                    <TableHead className="text-right">OPR</TableHead>
+                    <TableHead className="text-right">Auto</TableHead>
+                    <TableHead className="text-right">TeleOp</TableHead>
+                    <TableHead className="text-right">Endgame</TableHead>
+                    <TableHead className="text-right">W-L</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {teamsByOpr.map((team, index) => {
+                    const stats = teamStatsMap.get(team.teamNumber) ?? {
+                      matchCount: 0,
+                      wins: 0,
+                      losses: 0,
+                    };
+                    const qs = team.teamData?.quickStats;
+                    return (
+                      <TableRow
+                        key={team.teamNumber}
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => onTeamClick(team.teamNumber)}
+                      >
+                        <TableCell className="font-medium">
+                          #{index + 1}
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <span className="font-semibold">
+                              {team.teamNumber}
+                            </span>
+                            {(team.teamName || team.teamData?.name) && (
+                              <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                                {team.teamName || team.teamData?.name}
+                              </p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-bold">
+                          {qs?.tot?.value?.toFixed(1) ?? "-"}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {qs?.auto?.value?.toFixed(1) ?? "-"}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {qs?.dc?.value?.toFixed(1) ?? "-"}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {qs?.eg?.value?.toFixed(1) ?? "-"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <span className="text-green-600">{stats.wins}</span>
+                          <span className="text-muted-foreground">-</span>
+                          <span className="text-red-600">{stats.losses}</span>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 function AwardCard({ award }: { award: AwardFields }) {
   return (
     <Card>
@@ -660,9 +1079,7 @@ function AwardCard({ award }: { award: AwardFields }) {
             {award.personName && ` • ${award.personName}`}
           </p>
           {award.divisionName && (
-            <p className="text-xs text-muted-foreground">
-              {award.divisionName}
-            </p>
+            <p className="text-xs text-muted-foreground">{award.divisionName}</p>
           )}
         </div>
       </CardContent>
@@ -670,11 +1087,8 @@ function AwardCard({ award }: { award: AwardFields }) {
   );
 }
 
-// Awards Tab Component
 function AwardsTab({ awards }: { awards: AwardFields[] }) {
-  // Group awards by type
   const sortedAwards = [...awards].sort((a, b) => {
-    // Winner/Finalist first, then by placement
     const typeOrder: AwardType[] = [
       "Winner",
       "Finalist",
@@ -712,13 +1126,15 @@ function AwardsTab({ awards }: { awards: AwardFields[] }) {
   return (
     <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
       {sortedAwards.map((award, idx) => (
-        <AwardCard key={`${award.type}-${award.teamNumber}-${idx}`} award={award} />
+        <AwardCard
+          key={`${award.type}-${award.teamNumber}-${idx}`}
+          award={award}
+        />
       ))}
     </div>
   );
 }
 
-// Event Details Tab Component
 function DetailsTab({ event }: { event: EventCoreFragment }) {
   return (
     <Card>
@@ -727,7 +1143,6 @@ function DetailsTab({ event }: { event: EventCoreFragment }) {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-4 md:grid-cols-2">
-          {/* Location Details */}
           <div className="space-y-2">
             <h3 className="font-semibold">Location</h3>
             <Separator />
@@ -759,7 +1174,6 @@ function DetailsTab({ event }: { event: EventCoreFragment }) {
             </div>
           </div>
 
-          {/* Event Info */}
           <div className="space-y-2">
             <h3 className="font-semibold">Event Information</h3>
             <Separator />
@@ -802,7 +1216,6 @@ function DetailsTab({ event }: { event: EventCoreFragment }) {
           </div>
         </div>
 
-        {/* Webcasts */}
         {event.webcasts && event.webcasts.length > 0 && (
           <div className="space-y-2">
             <h3 className="font-semibold">Webcasts</h3>
@@ -830,14 +1243,80 @@ function DetailsTab({ event }: { event: EventCoreFragment }) {
 
 function EventDetailPage() {
   const { code } = Route.useParams();
+  const navigate = useNavigate();
+
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [autoSyncAttempted, setAutoSyncAttempted] = useState(false);
+  const [isSyncingTeams, setIsSyncingTeams] = useState(false);
 
   // Fetch event data from Convex
   const eventData = useQuery(api.integrations.ftcScout.getEvent, {
     eventCode: code,
   });
 
+  // Sync actions
+  const syncEventData = useAction(
+    api.integrations.ftcScoutActions.syncEventData
+  );
+  const syncTeamData = useAction(
+    api.integrations.ftcScoutActions.syncFtcScoutData
+  );
+
+  const handleSync = useCallback(async () => {
+    setIsSyncing(true);
+    setSyncError(null);
+    try {
+      const result = await syncEventData({ eventCode: code });
+      if (!result.success) {
+        setSyncError(result.message);
+      }
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : "Sync failed");
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [syncEventData, code]);
+
+  // Auto-sync when event not found in database
+  useEffect(() => {
+    if (eventData === null && !autoSyncAttempted && !isSyncing) {
+      setAutoSyncAttempted(true);
+      handleSync();
+    }
+  }, [eventData, autoSyncAttempted, isSyncing, handleSync]);
+
+  const handleTeamClick = (teamNumber: number) => {
+    navigate({
+      to: "/scouting/team/$number",
+      params: { number: teamNumber.toString() },
+    });
+  };
+
+  // Sync all unsynced teams
+  const handleSyncAllTeams = useCallback(async () => {
+    if (!eventData?.teams) return;
+    
+    const unsyncedTeams = eventData.teams.filter((t) => !t.teamData);
+    if (unsyncedTeams.length === 0) return;
+
+    setIsSyncingTeams(true);
+    try {
+      // Sync all teams in parallel
+      await Promise.all(
+        unsyncedTeams.map((team) =>
+          syncTeamData({ teamNumber: team.teamNumber })
+        )
+      );
+    } catch (error) {
+      console.error("Error syncing teams:", error);
+    } finally {
+      setIsSyncingTeams(false);
+    }
+  }, [eventData?.teams, syncTeamData]);
+
   // Loading state
-  if (eventData === undefined) {
+  if (eventData === undefined || (eventData === null && !autoSyncAttempted)) {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-4">
@@ -857,37 +1336,66 @@ function EventDetailPage() {
     );
   }
 
-  // Not found state
-  if (eventData === null) {
+  // Syncing state - fetching from FTC Scout API
+  if (isSyncing) {
     return (
-      <div className="flex flex-col items-center justify-center py-12">
-        <h2 className="text-xl font-semibold">Event not found</h2>
-        <p className="text-muted-foreground mb-4">
-          The event &quot;{code}&quot; doesn&apos;t exist or hasn&apos;t been synced yet.
+      <div className="flex flex-col items-center justify-center py-24">
+        <RefreshCw className="h-12 w-12 animate-spin text-primary mb-4" />
+        <h2 className="text-xl font-semibold mb-2">Fetching Event Data</h2>
+        <p className="text-muted-foreground">
+          Event &quot;{code}&quot; not found in database. Fetching from FTC
+          Scout...
         </p>
-        <Button asChild>
-          <Link to="/calendar">Back to Calendar</Link>
-        </Button>
       </div>
     );
   }
 
-  // Parse the event data from Convex (stored as `data: v.any()`)
+  // Not found state (after sync attempt failed)
+  if (eventData === null) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12">
+        <AlertCircle className="h-12 w-12 text-destructive mb-4" />
+        <h2 className="text-xl font-semibold mb-2">Event Not Found</h2>
+        <p className="text-muted-foreground mb-4 text-center max-w-md">
+          {syncError ||
+            `The event "${code}" could not be found in the database or FTC Scout. Please check the event code and try again.`}
+        </p>
+        <div className="flex gap-2">
+          <Button variant="outline" asChild>
+            <Link to="/events">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Events
+            </Link>
+          </Button>
+          <Button onClick={handleSync}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Try Again
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Parse the event data
   const event = eventData.data as EventCoreFragment;
-  const matches = eventData.matches.map((m) => m.data as MatchCoreFragment);
-  const awards = eventData.awards.map((a) => a.data as AwardFields);
+  const matches = eventData.matches.map((m: { id: string; data: unknown }) => m.data as MatchCoreFragment);
+  const awards = eventData.awards.map((a: { id: string; data: unknown }) => a.data as AwardFields);
+  const teams = eventData.teams as TeamEventData[];
 
   return (
     <div className="space-y-6">
-      {/* Event Header */}
       <EventHeader event={event} />
 
-      {/* Tabs for Matches, Awards, Details */}
       <Tabs defaultValue="matches" className="w-full">
-        <TabsList>
+        <div className="flex items-center justify-between gap-4">
+          <TabsList>
           <TabsTrigger value="matches" className="gap-2">
             <Users className="h-4 w-4" />
             Matches ({matches.length})
+          </TabsTrigger>
+          <TabsTrigger value="teams" className="gap-2">
+            <Users className="h-4 w-4" />
+            Teams ({teams.length})
           </TabsTrigger>
           <TabsTrigger value="awards" className="gap-2">
             <Trophy className="h-4 w-4" />
@@ -899,8 +1407,31 @@ function EventDetailPage() {
           </TabsTrigger>
         </TabsList>
 
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSync}
+            disabled={isSyncing}
+          >
+            <RefreshCw
+              className={cn("h-4 w-4 mr-2", isSyncing && "animate-spin")}
+            />
+            {isSyncing ? "Syncing..." : "Reload"}
+          </Button>
+        </div>
+
         <TabsContent value="matches" className="mt-4">
-          <MatchesTab matches={matches} />
+          <MatchesTab matches={matches} onTeamClick={handleTeamClick} />
+        </TabsContent>
+
+        <TabsContent value="teams" className="mt-4">
+          <TeamsTab
+            teams={teams}
+            matches={matches}
+            onTeamClick={handleTeamClick}
+            onSyncAllTeams={handleSyncAllTeams}
+            isSyncingTeams={isSyncingTeams}
+          />
         </TabsContent>
 
         <TabsContent value="awards" className="mt-4">

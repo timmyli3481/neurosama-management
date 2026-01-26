@@ -22,17 +22,55 @@ export const saveTeamInfo = internalMutation({
       .withIndex("by_teamNumber", (q) => q.eq("teamNumber", args.teamNumber))
       .first();
 
+    // Extract name from data if available
+    const name = args.data?.name as string | undefined;
+
     let id: Id<"teamInfo">;
     if (existing) {
-      await ctx.db.patch(existing._id, { data: args.data });
+      await ctx.db.patch(existing._id, { data: args.data, name });
       id = existing._id;
     } else {
       id = await ctx.db.insert("teamInfo", {
         teamNumber: args.teamNumber,
+        name,
         data: args.data,
       });
     }
     return { success: true, id };
+  },
+});
+
+// Create a placeholder teamInfo record with null data (for scouting relations)
+export const createPlaceholderTeamInfo = internalMutation({
+  args: {
+    teamNumber: v.number(),
+    name: v.optional(v.string()),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    id: v.id("teamInfo"),
+    isNew: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("teamInfo")
+      .withIndex("by_teamNumber", (q) => q.eq("teamNumber", args.teamNumber))
+      .first();
+
+    if (existing) {
+      // Update name if provided and not already set
+      if (args.name && !existing.name) {
+        await ctx.db.patch(existing._id, { name: args.name });
+      }
+      return { success: true, id: existing._id, isNew: false };
+    }
+
+    const id = await ctx.db.insert("teamInfo", {
+      teamNumber: args.teamNumber,
+      name: args.name,
+      data: undefined, // null - will be populated when user views team page
+    });
+    return { success: true, id, isNew: true };
   },
 });
 
@@ -44,7 +82,8 @@ export const getTeamInfo = internalQuery({
     v.object({
       id: v.id("teamInfo"),
       teamNumber: v.number(),
-      data: v.any(),
+      name: v.optional(v.string()),
+      data: v.optional(v.any()),
     }),
     v.null(),
   ),
@@ -58,6 +97,7 @@ export const getTeamInfo = internalQuery({
     return {
       id: existing._id,
       teamNumber: existing.teamNumber,
+      name: existing.name,
       data: existing.data,
     };
   },
@@ -434,14 +474,19 @@ export const saveTeamMatch = internalMutation({
     id: v.id("teamMatches"),
   }),
   handler: async (ctx, args) => {
+    // Query by both teamInfoId AND matchId to find this specific team's participation
+    // in this match (multiple teams participate in each match)
     const existing = await ctx.db
       .query("teamMatches")
-      .withIndex("matchId", (q) => q.eq("matchId", args.matchId))
+      .withIndex("by_teamInfoId_and_matchId", (q) =>
+        q.eq("teamInfoId", args.teamInfoId).eq("matchId", args.matchId)
+      )
       .first();
 
     let id: Id<"teamMatches">;
     if (existing) {
       await ctx.db.patch(existing._id, {
+        teamEventId: args.teamEventId,
         startDate: args.startDate,
         data: args.data,
       });
@@ -461,6 +506,7 @@ export const saveTeamMatch = internalMutation({
 
 export const getTeamMatch = internalQuery({
   args: {
+    teamInfoId: v.id("teamInfo"),
     matchId: v.id("officialMatches"),
   },
   returns: v.union(
@@ -475,9 +521,12 @@ export const getTeamMatch = internalQuery({
     v.null(),
   ),
   handler: async (ctx, args) => {
+    // Query by both teamInfoId AND matchId to find this specific team's participation
     const existing = await ctx.db
       .query("teamMatches")
-      .withIndex("matchId", (q) => q.eq("matchId", args.matchId))
+      .withIndex("by_teamInfoId_and_matchId", (q) =>
+        q.eq("teamInfoId", args.teamInfoId).eq("matchId", args.matchId)
+      )
       .first();
 
     if (!existing) return null;
@@ -597,6 +646,14 @@ export const getEvent = query({
           data: v.any(),
         }),
       ),
+      teams: v.array(
+        v.object({
+          teamNumber: v.number(),
+          teamName: v.optional(v.string()), // Team name - can be set even for placeholder teams
+          teamInfoId: v.union(v.id("teamInfo"), v.null()), // null if team not in teamEvents yet
+          teamData: v.optional(v.any()), // TeamCoreFragment - may be null for placeholder teams
+        }),
+      ),
     }),
     v.null(),
   ),
@@ -609,6 +666,81 @@ export const getEvent = query({
 
     const matches = await existing.edge("officialMatches");
     const awards = await existing.edge("officialAwards");
+    
+    // Build a map of all teams from matches (as fallback for teams without teamEvents)
+    const teamsFromMatches = new Map<number, { teamNumber: number }>();
+    for (const match of matches) {
+      const matchData = match.data as { teams?: Array<{ teamNumber: number }> };
+      if (matchData?.teams) {
+        for (const team of matchData.teams) {
+          if (!teamsFromMatches.has(team.teamNumber)) {
+            teamsFromMatches.set(team.teamNumber, { teamNumber: team.teamNumber });
+          }
+        }
+      }
+    }
+    
+    // Get teams via teamEvents junction table using direct query
+    const teamEvents = await ctx
+      .table("teamEvents")
+      .filter((q) => q.eq(q.field("eventId"), existing._id));
+    
+    // Map of teamNumber -> team data from teamEvents
+    const teamsFromEvents = new Map<number, {
+      teamNumber: number;
+      teamName: string | undefined;
+      teamInfoId: string;
+      teamData: unknown;
+    }>();
+    
+    for (const te of teamEvents) {
+      const teamInfo = await ctx.table("teamInfo").get(te.teamInfoId);
+      if (teamInfo) {
+        teamsFromEvents.set(teamInfo.teamNumber, {
+          teamNumber: teamInfo.teamNumber,
+          teamName: teamInfo.name,
+          teamInfoId: teamInfo._id,
+          teamData: teamInfo.data, // May be undefined for placeholder teams
+        });
+      }
+    }
+    
+    // Combine: use teamEvents data where available, otherwise create placeholder entries
+    const allTeamNumbers = new Set([
+      ...teamsFromMatches.keys(),
+      ...teamsFromEvents.keys(),
+    ]);
+    
+    const allTeams: Array<{
+      teamNumber: number;
+      teamName: string | undefined;
+      teamInfoId: Id<"teamInfo"> | null;
+      teamData: unknown;
+    }> = [];
+    
+    for (const teamNumber of allTeamNumbers) {
+      const fromEvents = teamsFromEvents.get(teamNumber);
+      if (fromEvents) {
+        allTeams.push({
+          teamNumber: fromEvents.teamNumber,
+          teamName: fromEvents.teamName,
+          teamInfoId: fromEvents.teamInfoId as Id<"teamInfo">,
+          teamData: fromEvents.teamData,
+        });
+      } else {
+        // Team exists in matches but not in teamEvents - show as unsynced
+        allTeams.push({
+          teamNumber,
+          teamName: undefined,
+          teamInfoId: null,
+          teamData: undefined,
+        });
+      }
+    }
+    
+    // Sort by team number
+    allTeams.sort((a, b) => a.teamNumber - b.teamNumber);
+
     return {
       id: existing._id,
       data: existing.data,
@@ -620,6 +752,7 @@ export const getEvent = query({
         id: award._id,
         data: award.data,
       })),
+      teams: allTeams,
     };
   },
 });
@@ -670,7 +803,9 @@ export const getTeamByNumber = query({
     v.object({
       id: v.id("teamInfo"),
       teamNumber: v.number(),
-      data: v.any(),
+      name: v.optional(v.string()), // Team name - can be set even for placeholder teams
+      data: v.optional(v.any()), // Can be null/undefined if not yet fetched
+      needsSync: v.boolean(), // True if data needs to be fetched
       events: v.array(
         v.object({
           id: v.id("teamEvents"),
@@ -706,6 +841,9 @@ export const getTeamByNumber = query({
       .first();
 
     if (!teamInfo) return null;
+
+    // Check if data needs to be synced (data is null/undefined)
+    const needsSync = teamInfo.data === null || teamInfo.data === undefined;
 
     // Get team events with event details
     const teamEvents = await teamInfo.edge("teamEvents");
@@ -753,7 +891,9 @@ export const getTeamByNumber = query({
     return {
       id: teamInfo._id,
       teamNumber: teamInfo.teamNumber,
+      name: teamInfo.name,
       data: teamInfo.data,
+      needsSync,
       events: eventsWithData.sort((a, b) => b.startDate - a.startDate),
       matches: matchesWithData.sort((a, b) => (b.startDate || 0) - (a.startDate || 0)),
       awards: awardsWithData,

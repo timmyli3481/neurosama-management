@@ -14,10 +14,10 @@ import {
   MatchCoreFragmentFragmentDoc,
   MatchFragmentFragmentDoc,
   TeamMatchParticipationCoreFragmentDoc,
+  TeamEventParticipationCoreFragmentDoc,
   TeamCoreFragmentFragmentDoc,
   EventCoreFragmentFragmentDoc,
   EventFragmentFragmentDoc,
-  type EventFragmentFragment,
   TeamCoreFragmentFragment,
 } from "../../gql/graphql";
 import { getFragmentData } from "../../gql";
@@ -249,76 +249,191 @@ export const fetchTeamData = internalAction({
         );
         const teamEventId = teamEventResult.id;
 
-        for (const match of eventCore.matches) {
-          const matchCore = getFragmentData(
-            MatchCoreFragmentFragmentDoc,
-            getFragmentData(MatchFragmentFragmentDoc, match),
-          );
-          const matchStartUtc = matchCore.scheduledStartTime
-            ? parseLocalDateTimeToUtc(matchCore.scheduledStartTime, eventTimezone)
-            : undefined;
+        // Process teams from event (if teams exist) - this gives us team names upfront
+        if (eventCore.teams) {
+          for (const teamParticipation of eventCore.teams) {
+            const teamEventData = getFragmentData(
+              TeamEventParticipationCoreFragmentDoc,
+              teamParticipation,
+            );
+            // Skip the current team (already handled above)
+            if (teamEventData.teamNumber === args.teamNumber) {
+              continue;
+            }
 
-          const teamParticipation = matchCore.teams.map((t) => getFragmentData(TeamMatchParticipationCoreFragmentDoc, t));
-          const teamNumbers = teamParticipation.map((t) => t.teamNumber);
+            const teamName = teamEventData.team?.name;
 
-          await ctx.runMutation(
-            internal.integrations.ftcScout.saveOfficialMatch,
-            {
-              eventId,
-              matchId: matchCore.id,
-              teamNumbers,
-              data: matchCore,
-              startDate: matchStartUtc,
-            },
-          );
+            // Get or create placeholder teamInfo with team name
+            let otherTeamInfo = await ctx.runQuery(
+              internal.integrations.ftcScout.getTeamInfo,
+              {
+                teamNumber: teamEventData.teamNumber,
+              },
+            );
+            if (!otherTeamInfo) {
+              const placeholderResult = await ctx.runMutation(
+                internal.integrations.ftcScout.createPlaceholderTeamInfo,
+                {
+                  teamNumber: teamEventData.teamNumber,
+                  name: teamName,
+                },
+              );
+              otherTeamInfo = {
+                id: placeholderResult.id,
+                teamNumber: teamEventData.teamNumber,
+                name: teamName,
+                data: undefined,
+              };
+            }
 
-
+            // Create team event junction for other team
+            await ctx.runMutation(
+              internal.integrations.ftcScout.saveTeamEvent,
+              {
+                teamInfoId: otherTeamInfo.id,
+                eventId,
+                startDate: eventStartUtc,
+              },
+            );
+          }
         }
 
-        // Process matches from the event
-        for (const matchEntry of eventParticipation.matches) {
-          // Get match core data (includes teams participation)
-          const matchData = getFragmentData(
-            MatchCoreFragmentFragmentDoc,
-            matchEntry.match,
-          );
+        // Process matches from event core (if matches exist)
+        if (eventCore.matches) {
+          for (const match of eventCore.matches) {
+            const matchCore = getFragmentData(
+              MatchCoreFragmentFragmentDoc,
+              getFragmentData(MatchFragmentFragmentDoc, match),
+            );
+            const matchStartUtc = matchCore.scheduledStartTime
+              ? parseLocalDateTimeToUtc(matchCore.scheduledStartTime, eventTimezone)
+              : undefined;
 
-          // Extract team participation data
-          const teamsParticipation = matchData.teams.map((team) =>
-            getFragmentData(TeamMatchParticipationCoreFragmentDoc, team),
-          );
-          const teamNumbers = teamsParticipation.map((t) => t.teamNumber);
+            const teamParticipation = matchCore.teams.map((t) => getFragmentData(TeamMatchParticipationCoreFragmentDoc, t));
+            const teamNumbers = teamParticipation.map((t) => t.teamNumber);
 
-          // Find the current team's participation data
-          const currentTeamParticipation = teamsParticipation.find(
-            (t) => t.teamNumber === args.teamNumber,
-          );
+            const matchResult = await ctx.runMutation(
+              internal.integrations.ftcScout.saveOfficialMatch,
+              {
+                eventId,
+                matchId: matchCore.id,
+                teamNumbers,
+                data: matchCore,
+                startDate: matchStartUtc,
+              },
+            );
 
-          // Parse match time using event timezone
-          const matchStartUtc = matchData.scheduledStartTime
-            ? parseLocalDateTimeToUtc(matchData.scheduledStartTime, eventTimezone)
-            : undefined;
+            // Create placeholder teamInfo for other teams participating in this match
+            for (const participationData of teamParticipation) {
+              // Skip the current team (already handled)
+              if (participationData.teamNumber === args.teamNumber) {
+                continue;
+              }
 
-          // Save or update official match with core data (includes teams)
-          const matchResult = await ctx.runMutation(
-            internal.integrations.ftcScout.saveOfficialMatch,
-            {
-              eventId,
-              matchId: matchData.id,
-              teamNumbers,
-              data: matchData,
+              // Extract team name from the nested team object
+              const teamName = participationData.team?.name;
+
+              // Get or create placeholder teamInfo
+              let otherTeamInfo = await ctx.runQuery(
+                internal.integrations.ftcScout.getTeamInfo,
+                {
+                  teamNumber: participationData.teamNumber,
+                },
+              );
+              if (!otherTeamInfo) {
+                const placeholderResult = await ctx.runMutation(
+                  internal.integrations.ftcScout.createPlaceholderTeamInfo,
+                  {
+                    teamNumber: participationData.teamNumber,
+                    name: teamName,
+                  },
+                );
+                otherTeamInfo = {
+                  id: placeholderResult.id,
+                  teamNumber: participationData.teamNumber,
+                  name: teamName,
+                  data: undefined,
+                };
+              }
+
+              // Get or create team event junction for other team
+              let otherTeamEvent = (
+                await ctx.runQuery(internal.integrations.ftcScout.getTeamEvent, {
+                  teamInfoId: otherTeamInfo.id,
+                  eventId,
+                })
+              )?.id;
+              if (!otherTeamEvent) {
+                otherTeamEvent = (
+                  await ctx.runMutation(
+                    internal.integrations.ftcScout.saveTeamEvent,
+                    {
+                      teamInfoId: otherTeamInfo.id,
+                      eventId,
+                      startDate: eventStartUtc,
+                    },
+                  )
+                ).id;
+              }
+
+              // Save team match junction for other team
+              await ctx.runMutation(internal.integrations.ftcScout.saveTeamMatch, {
+                teamInfoId: otherTeamInfo.id,
+                teamEventId: otherTeamEvent,
+                matchId: matchResult.id,
+                startDate: matchStartUtc,
+                data: participationData,
+              });
+            }
+          }
+        }
+
+        // Process matches from the event (if matches exist)
+        if (eventParticipation.matches) {
+          for (const matchEntry of eventParticipation.matches) {
+            // Get match core data (includes teams participation)
+            const matchData = getFragmentData(
+              MatchCoreFragmentFragmentDoc,
+              matchEntry.match,
+            );
+
+            // Extract team participation data
+            const teamsParticipation = matchData.teams.map((team) =>
+              getFragmentData(TeamMatchParticipationCoreFragmentDoc, team),
+            );
+            const teamNumbers = teamsParticipation.map((t) => t.teamNumber);
+
+            // Find the current team's participation data
+            const currentTeamParticipation = teamsParticipation.find(
+              (t) => t.teamNumber === args.teamNumber,
+            );
+
+            // Parse match time using event timezone
+            const matchStartUtc = matchData.scheduledStartTime
+              ? parseLocalDateTimeToUtc(matchData.scheduledStartTime, eventTimezone)
+              : undefined;
+
+            // Save or update official match with core data (includes teams)
+            const matchResult = await ctx.runMutation(
+              internal.integrations.ftcScout.saveOfficialMatch,
+              {
+                eventId,
+                matchId: matchData.id,
+                teamNumbers,
+                data: matchData,
+                startDate: matchStartUtc,
+              },
+            );
+
+            // Save team match junction with TeamMatchParticipationCore data
+            await ctx.runMutation(internal.integrations.ftcScout.saveTeamMatch, {
+              teamInfoId,
+              teamEventId,
+              matchId: matchResult.id,
               startDate: matchStartUtc,
-            },
-          );
-
-          // Save team match junction with TeamMatchParticipationCore data
-          await ctx.runMutation(internal.integrations.ftcScout.saveTeamMatch, {
-            teamInfoId,
-            teamEventId,
-            matchId: matchResult.id,
-            startDate: matchStartUtc,
-            data: currentTeamParticipation,
-          });
+              data: currentTeamParticipation,
+            });
+          }
         }
 
         // Process awards from event participation
@@ -557,42 +672,175 @@ export const fetchEventData = internalAction({
         },
       );
 
-      for (const match of eventData.matches) {
-        const matchData = getFragmentData(
-          MatchCoreFragmentFragmentDoc,
-          getFragmentData(MatchFragmentFragmentDoc, match),
-        );
-        const teamsParticipation = matchData.teams.map((team) =>
-          getFragmentData(TeamMatchParticipationCoreFragmentDoc, team),
-        );
-        const teamNumbers = teamsParticipation.map((t) => t.teamNumber);
+      // Process teams from event (if teams exist) - this gives us team names upfront
+      if (eventData.teams) {
+        for (const teamParticipation of eventData.teams) {
+          const teamEventData = getFragmentData(
+            TeamEventParticipationCoreFragmentDoc,
+            teamParticipation,
+          );
+          const teamName = teamEventData.team?.name;
 
-        // Parse match time using event timezone
-        const matchStartUtc = matchData.scheduledStartTime
-          ? parseLocalDateTimeToUtc(matchData.scheduledStartTime, eventTimezone)
-          : undefined;
-
-        const matchResult = await ctx.runMutation(
-          internal.integrations.ftcScout.saveOfficialMatch,
-          {
-            eventId: eventResult.id,
-            matchId: matchData.id,
-            teamNumbers,
-            data: matchData,
-            startDate: matchStartUtc,
-          },
-        );
-
-        for (const teamParticipationOne of teamsParticipation) {
-          const teamInfo = await ctx.runQuery(
+          // Get or create placeholder teamInfo with team name
+          let teamInfo = await ctx.runQuery(
             internal.integrations.ftcScout.getTeamInfo,
             {
-              teamNumber: teamParticipationOne.teamNumber,
+              teamNumber: teamEventData.teamNumber,
             },
           );
           if (!teamInfo) {
-            console.error(`Team ${teamParticipationOne.teamNumber} not found`);
+            const placeholderResult = await ctx.runMutation(
+              internal.integrations.ftcScout.createPlaceholderTeamInfo,
+              {
+                teamNumber: teamEventData.teamNumber,
+                name: teamName,
+              },
+            );
+            teamInfo = {
+              id: placeholderResult.id,
+              teamNumber: teamEventData.teamNumber,
+              name: teamName,
+              data: undefined,
+            };
+          }
+
+          // Create team event junction
+          await ctx.runMutation(
+            internal.integrations.ftcScout.saveTeamEvent,
+            {
+              teamInfoId: teamInfo.id,
+              eventId: eventResult.id,
+              startDate: eventStartUtc,
+            },
+          );
+        }
+      }
+
+      // Process matches (if matches exist)
+      if (eventData.matches) {
+        for (const match of eventData.matches) {
+          const matchData = getFragmentData(
+            MatchCoreFragmentFragmentDoc,
+            getFragmentData(MatchFragmentFragmentDoc, match),
+          );
+          const teamsParticipation = matchData.teams.map((team) =>
+            getFragmentData(TeamMatchParticipationCoreFragmentDoc, team),
+          );
+          const teamNumbers = teamsParticipation.map((t) => t.teamNumber);
+
+          // Parse match time using event timezone
+          const matchStartUtc = matchData.scheduledStartTime
+            ? parseLocalDateTimeToUtc(matchData.scheduledStartTime, eventTimezone)
+            : undefined;
+
+          const matchResult = await ctx.runMutation(
+            internal.integrations.ftcScout.saveOfficialMatch,
+            {
+              eventId: eventResult.id,
+              matchId: matchData.id,
+              teamNumbers,
+              data: matchData,
+              startDate: matchStartUtc,
+            },
+          );
+
+          for (const teamParticipationOne of teamsParticipation) {
+            // Extract team name from the nested team object
+            const teamName = teamParticipationOne.team?.name;
+
+            // Get or create placeholder teamInfo (with null data - will be fetched when user views team page)
+            let teamInfo = await ctx.runQuery(
+              internal.integrations.ftcScout.getTeamInfo,
+              {
+                teamNumber: teamParticipationOne.teamNumber,
+              },
+            );
+            if (!teamInfo) {
+              // Create placeholder teamInfo with null data but with team name
+              const placeholderResult = await ctx.runMutation(
+                internal.integrations.ftcScout.createPlaceholderTeamInfo,
+                {
+                  teamNumber: teamParticipationOne.teamNumber,
+                  name: teamName,
+                },
+              );
+              teamInfo = {
+                id: placeholderResult.id,
+                teamNumber: teamParticipationOne.teamNumber,
+                name: teamName,
+                data: undefined,
+              };
+            }
+            let teamEvent = (
+              await ctx.runQuery(internal.integrations.ftcScout.getTeamEvent, {
+                teamInfoId: teamInfo.id,
+                eventId: eventResult.id,
+              })
+            )?.id;
+            if (!teamEvent) {
+              teamEvent = (
+                await ctx.runMutation(
+                  internal.integrations.ftcScout.saveTeamEvent,
+                  {
+                    teamInfoId: teamInfo.id,
+                    eventId: eventResult.id,
+                    startDate: eventStartUtc,
+                  },
+                )
+              ).id;
+            }
+            await ctx.runMutation(internal.integrations.ftcScout.saveTeamMatch, {
+              teamInfoId: teamInfo.id,
+              teamEventId: teamEvent,
+              matchId: matchResult.id,
+              startDate: matchStartUtc,
+              data: teamParticipationOne,
+            });
+          }
+        }
+      }
+
+      // Process awards (if awards exist)
+      if (eventData.awards) {
+        for (const award of eventData.awards) {
+          const awardData = getFragmentData(AwardFieldsFragmentDoc, award);
+          const awardResult = await ctx.runMutation(
+            internal.integrations.ftcScout.saveOfficialAward,
+            {
+              eventId: eventResult.id,
+              awardType: awardData.type,
+              placement: awardData.placement,
+              teamNumber: awardData.teamNumber,
+              data: awardData,
+            },
+          );
+
+          // Skip awards without a team number (e.g., volunteer awards)
+          if (!awardData.teamNumber) {
             continue;
+          }
+
+          // Get or create placeholder teamInfo (with null data - will be fetched when user views team page)
+          let teamInfo = await ctx.runQuery(
+            internal.integrations.ftcScout.getTeamInfo,
+            {
+              teamNumber: awardData.teamNumber,
+            },
+          );
+          if (!teamInfo) {
+            // Create placeholder teamInfo with null data
+            const placeholderResult = await ctx.runMutation(
+              internal.integrations.ftcScout.createPlaceholderTeamInfo,
+              {
+                teamNumber: awardData.teamNumber,
+              },
+            );
+            teamInfo = {
+              id: placeholderResult.id,
+              teamNumber: awardData.teamNumber,
+              name: undefined,
+              data: undefined,
+            };
           }
           let teamEvent = (
             await ctx.runQuery(internal.integrations.ftcScout.getTeamEvent, {
@@ -612,62 +860,12 @@ export const fetchEventData = internalAction({
               )
             ).id;
           }
-          await ctx.runMutation(internal.integrations.ftcScout.saveTeamMatch, {
+          await ctx.runMutation(internal.integrations.ftcScout.saveTeamAward, {
             teamInfoId: teamInfo.id,
             teamEventId: teamEvent,
-            matchId: matchResult.id,
-            startDate: matchStartUtc,
-            data: teamParticipationOne,
+            awardId: awardResult.id,
           });
         }
-      }
-
-      for (const award of eventData.awards) {
-        const awardData = getFragmentData(AwardFieldsFragmentDoc, award);
-        const awardResult = await ctx.runMutation(
-          internal.integrations.ftcScout.saveOfficialAward,
-          {
-            eventId: eventResult.id,
-            awardType: awardData.type,
-            placement: awardData.placement,
-            teamNumber: awardData.teamNumber,
-            data: awardData,
-          },
-        );
-
-        const teamInfo = await ctx.runQuery(
-          internal.integrations.ftcScout.getTeamInfo,
-          {
-            teamNumber: awardData.teamNumber,
-          },
-        );
-        if (!teamInfo) {
-          console.error(`Team ${awardData.teamNumber} not found`);
-          continue;
-        }
-        let teamEvent = (
-          await ctx.runQuery(internal.integrations.ftcScout.getTeamEvent, {
-            teamInfoId: teamInfo.id,
-            eventId: eventResult.id,
-          })
-        )?.id;
-        if (!teamEvent) {
-          teamEvent = (
-            await ctx.runMutation(
-              internal.integrations.ftcScout.saveTeamEvent,
-              {
-                teamInfoId: teamInfo.id,
-                eventId: eventResult.id,
-                startDate: eventStartUtc,
-              },
-            )
-          ).id;
-        }
-        await ctx.runMutation(internal.integrations.ftcScout.saveTeamAward, {
-          teamInfoId: teamInfo.id,
-          teamEventId: teamEvent,
-          awardId: awardResult.id,
-        });
       }
       console.log(
         `Successfully fetched event ${args.eventCode} for season 2025`,

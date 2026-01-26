@@ -61,6 +61,7 @@ export const listScoutedTeams = query({
     v.object({
       id: v.id("teamScouting"),
       teamCode: v.string(),
+      teamName: v.optional(v.string()),
       createdAt: v.number(),
       commentCount: v.number(),
     }),
@@ -71,9 +72,16 @@ export const listScoutedTeams = query({
     const results = await Promise.all(
       scoutingRecords.map(async (record) => {
         const comments = await record.edge("teamComments");
+        // Get team name from linked teamInfo if available
+        let teamName: string | undefined;
+        if (record.teamInfoId) {
+          const teamInfo = await ctx.table("teamInfo").get(record.teamInfoId);
+          teamName = teamInfo?.name;
+        }
         return {
           id: record._id,
           teamCode: record.teamCode,
+          teamName,
           createdAt: record.createdAt,
           commentCount: comments.length,
         };
@@ -107,13 +115,20 @@ export const getOrCreateTeamScouting = mutation({
       return existing._id;
     }
 
-    // Check if team info exists
-    const teamInfo = await ctx
+    // Check if team info exists, create placeholder if not
+    let teamInfo = await ctx
       .table("teamInfo")
       .filter((q) => q.eq(q.field("teamNumber"), args.teamNumber))
       .first();
 
-    if (!teamInfo) throw new Error("Team not found");
+    if (!teamInfo) {
+      // Create placeholder teamInfo with null data (will be fetched when user views team page)
+      const teamInfoId = await ctx.table("teamInfo").insert({
+        teamNumber: args.teamNumber,
+        data: undefined, // null - will be populated when user views team page
+      });
+      teamInfo = await ctx.table("teamInfo").getX(teamInfoId);
+    }
 
     // Create new scouting record
     const id = await ctx.table("teamScouting").insert({
@@ -143,13 +158,20 @@ export const addTeamComment = mutation({
       .first();
 
     if (!scouting) {
-      // Check if team info exists
-      const teamInfo = await ctx
+      // Check if team info exists, create placeholder if not
+      let teamInfo = await ctx
         .table("teamInfo")
         .filter((q) => q.eq(q.field("teamNumber"), args.teamNumber))
         .first();
 
-      if (!teamInfo) throw new Error("Team not found");
+      if (!teamInfo) {
+        // Create placeholder teamInfo with null data (will be fetched when user views team page)
+        const teamInfoId = await ctx.table("teamInfo").insert({
+          teamNumber: args.teamNumber,
+          data: undefined, // null - will be populated when user views team page
+        });
+        teamInfo = await ctx.table("teamInfo").getX(teamInfoId);
+      }
 
       const scoutingId = await ctx.table("teamScouting").insert({
         teamCode,

@@ -33,6 +33,39 @@ export const Route = createFileRoute("/_dashboard/events/")({
 });
 
 // ==========================================
+// TIMEZONE-AWARE DATE HELPERS
+// ==========================================
+
+/**
+ * Get date parts (year, month, day) in a specific timezone
+ */
+function getDatePartsInTimezone(
+  timestamp: number,
+  timezone: string
+): { year: number; month: number; day: number } {
+  const date = new Date(timestamp);
+
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  });
+
+  const parts = formatter.formatToParts(date);
+  const getValue = (type: string) => {
+    const part = parts.find((p) => p.type === type);
+    return part ? parseInt(part.value, 10) : 0;
+  };
+
+  return {
+    year: getValue("year"),
+    month: getValue("month"),
+    day: getValue("day"),
+  };
+}
+
+// ==========================================
 // TYPE DEFINITIONS (mapped from GraphQL fragments)
 // ==========================================
 
@@ -181,15 +214,26 @@ function EventStatusBadge({ event }: { event: EventCoreFragment }) {
 function EventCard({
   event,
   eventCode,
+  startTimestamp,
+  endTimestamp,
 }: {
   event: EventCoreFragment;
   eventCode: string;
+  startTimestamp: number;
+  endTimestamp: number;
 }) {
-  const { formatDate } = useTimezone();
+  const { formatDate, timezone } = useTimezone();
 
-  const startDate = new Date(event.start);
-  const endDate = new Date(event.end);
-  const isSameDay = event.start === event.end;
+  // Check if same day in the selected timezone
+  const isSameDay = useMemo(() => {
+    const startParts = getDatePartsInTimezone(startTimestamp, timezone);
+    const endParts = getDatePartsInTimezone(endTimestamp, timezone);
+    return (
+      startParts.year === endParts.year &&
+      startParts.month === endParts.month &&
+      startParts.day === endParts.day
+    );
+  }, [startTimestamp, endTimestamp, timezone]);
 
   return (
     <Card className="hover:shadow-md transition-shadow">
@@ -215,15 +259,15 @@ function EventCard({
           <Calendar className="h-4 w-4 text-muted-foreground" />
           <span>
             {isSameDay
-              ? formatDate(startDate.getTime(), {
+              ? formatDate(startTimestamp, {
                   month: "long",
                   day: "numeric",
                   year: "numeric",
                 })
-              : `${formatDate(startDate.getTime(), {
+              : `${formatDate(startTimestamp, {
                   month: "short",
                   day: "numeric",
-                })} - ${formatDate(endDate.getTime(), {
+                })} - ${formatDate(endTimestamp, {
                   month: "short",
                   day: "numeric",
                   year: "numeric",
@@ -451,6 +495,8 @@ function EventsPage() {
                 key={eventData.id}
                 event={eventData.data as EventCoreFragment}
                 eventCode={eventData.eventCode}
+                startTimestamp={eventData.startDate}
+                endTimestamp={eventData.endDate}
               />
             ))}
           </div>

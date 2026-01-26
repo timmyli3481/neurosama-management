@@ -104,7 +104,7 @@ fragment EventCoreFragment on Event {
   updatedAt
 }
 
-# EventFragment: Full event data including nested matches and awards.
+# EventFragment: Full event data including nested matches, awards, and teams.
 # Use this for querying - the nested data is saved to separate tables.
 fragment EventFragment on Event {
   ...EventCoreFragment
@@ -115,6 +115,21 @@ fragment EventFragment on Event {
 
   awards {
     ...AwardFields
+  }
+
+  teams {
+    ...TeamEventParticipationCore
+  }
+}
+
+# TeamEventParticipationCore: Team participation in an event with basic team info.
+fragment TeamEventParticipationCore on TeamEventParticipation {
+  season
+  eventCode
+  teamNumber
+  team {
+    number
+    name
   }
 }
 
@@ -221,4 +236,8 @@ fragment TeamMatchParticipationCore on TeamMatchParticipation {
   allianceRole
   station
   teamNumber
+  team {
+    number
+    name
+  }
 }
